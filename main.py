@@ -20,7 +20,7 @@ def get_args():
     parser.add_argument('--model', type=str, default='LSTM', choices=['LSTM', 'Transformer'], help='model used in training')
     parser.add_argument('--dataset', type=str, default='IMDB', choices=['IMDB', 'AG_NEWS', 'DBpedia', 'SST2'], help='dataset used in training')
     parser.add_argument('--max_length', type=int, default=350, help="max length of text")
-    parser.add_argument('--batch_size', type=int, default=128, help='batch size for training')
+    parser.add_argument('--batch_size', type=int, default=32, help='batch size for training')
     parser.add_argument('--lr', type=float, default=0.001, help='learning rate for training')
     parser.add_argument('--epochs', type=int, default=10, help='number of local epochs')
     parser.add_argument('--comm_round', type=int, default=50, help='number of maximum communication roun')

@@ -75,11 +75,7 @@ class TextDataset(Dataset):
         text = self.data[idx]
         label = self.labels[idx]
         sequence = self.convert2id(text)
-        return {
-            'text': text,
-            'sequence': torch.tensor(sequence),
-            'label': torch.tensor(label)
-        }
+        return sequence, label
 
 
 class SST2Dataset(TextDataset):
