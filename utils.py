@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import random
 from sklearn.metrics import confusion_matrix
-from datasets import MOONTextDataset
+from NLP_datasets import MOONTextDataset
 from model import *
 from torch.utils.data import DataLoader
 

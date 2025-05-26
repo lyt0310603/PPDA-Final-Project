@@ -108,12 +108,36 @@ class SST2Dataset(TextDataset):
         self.labels = dataset['label']
         self.create_vocab()
 
+class Newsgroups20Dataset(TextDataset):
+    def __init__(self, split='train'):
+        super().__init__()
+        dataset = load_dataset('20newsgroups', split=split)
+        self.data = dataset['text']
+        self.labels = dataset['label']
+        self.create_vocab()
+
+class TRECDataset(TextDataset):
+    def __init__(self, split='train'):
+        super().__init__()
+        dataset = load_dataset('trec', split=split)
+        self.data = dataset['text']
+        self.labels = dataset['label']
+        self.create_vocab()
+
+class YelpReviewDataset(TextDataset):
+    def __init__(self, split='train'):
+        super().__init__()
+        dataset = load_dataset('yelp_review', split=split)
+        self.data = dataset['text']
+        self.labels = dataset['label']
+        self.create_vocab()
+
 class MOONTextDataset(TextDataset):
     def __init__(self, dataset_name, split='train', alpha=0.5, n_clients=None):
         """
         初始化 MOON 數據集
         Args:
-            dataset_name: 數據集名稱 ('imdb', 'ag_news', 'dbpedia_14', 'sst2')
+            dataset_name: 數據集名稱 ('imdb', 'ag_news', 'dbpedia_14', 'sst2', '20newsgroups', 'trec', 'yelp_review')
             split: 數據集分割 ('train' 或 'test')
             alpha: Dirichlet 分布的參數，控制數據分布的不平衡程度
             n_clients: 總客戶端數量
@@ -131,6 +155,12 @@ class MOONTextDataset(TextDataset):
             dataset = DBPediaDataset(split)
         elif dataset_name == 'sst2':
             dataset = SST2Dataset(split)
+        elif dataset_name == '20newsgroups':
+            dataset = Newsgroups20Dataset(split)
+        elif dataset_name == 'trec':
+            dataset = TRECDataset(split)
+        elif dataset_name == 'yelp_review':
+            dataset = YelpReviewDataset(split)
         else:
             raise ValueError(f"不支持的數據集: {dataset_name}")
             
@@ -194,3 +224,5 @@ class MOONTextDataset(TextDataset):
         if client_id not in self.client_indices:
             raise ValueError(f"客戶端 ID {client_id} 不存在")
         return self.client_indices[client_id]
+
+
