@@ -1,0 +1,29 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Visualization files
+visualize_distribution.py
+distribution_*.png
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+venv/
+env/
+.venv/
+
+# Logs
+*.log
+logs/
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt 
