@@ -12,8 +12,7 @@ import itertools
 
 
 class TextDataset(Dataset):
-    def __init__(self, data_path, max_length=512):
-        self.data_path = data_path
+    def __init__(self, max_length=512):
         self.max_length = max_length
         self.data = []
         self.labels = []
@@ -50,7 +49,6 @@ class TextDataset(Dataset):
         
         self.vocab_size = len(self.vocab)
         print('詞彙表大小:', self.vocab_size)
-        return self.vocab
     
     def convert2id(self, text):
         """
@@ -78,42 +76,121 @@ class TextDataset(Dataset):
         return sequence, label
 
 
-class SST2Dataset(TextDataset):
-    def __init__(self, data_path, split='train'):
-        super().__init__(data_path)
-        dataset = load_dataset('glue', 'sst2', split=split)
-        self.data = dataset['sentence']
-        self.labels = dataset['label']
-        self.create_vocab()
-
 class IMDBDataset(TextDataset):
-    def __init__(self, data_path, split='train'):
-        super().__init__(data_path)
+    def __init__(self, split='train'):
+        super().__init__()
         dataset = load_dataset('imdb', split=split)
         self.data = dataset['text']
         self.labels = dataset['label']
         self.create_vocab()
 
 class AGNewsDataset(TextDataset):
-    def __init__(self, data_path, split='train'):
-        super().__init__(data_path)
+    def __init__(self, split='train'):
+        super().__init__()
         dataset = load_dataset('ag_news', split=split)
         self.data = dataset['text']
         self.labels = dataset['label']
         self.create_vocab()
 
 class DBPediaDataset(TextDataset):
-    def __init__(self, data_path, split='train'):
-        super().__init__(data_path)
+    def __init__(self, split='train'):
+        super().__init__()
         dataset = load_dataset('dbpedia_14', split=split)
         self.data = dataset['content']
         self.labels = dataset['label']
         self.create_vocab()
 
-def get_dataloader(dataset, batch_size=32, shuffle=True):
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=4
-    )
+class SST2Dataset(TextDataset):
+    def __init__(self, split='train'):
+        super().__init__()
+        dataset = load_dataset('glue', 'sst2', split=split)
+        self.data = dataset['sentence']
+        self.labels = dataset['label']
+        self.create_vocab()
+
+class MOONTextDataset(TextDataset):
+    def __init__(self, dataset_name, split='train', alpha=0.5, n_clients=None):
+        """
+        初始化 MOON 數據集
+        Args:
+            dataset_name: 數據集名稱 ('imdb', 'ag_news', 'dbpedia_14', 'sst2')
+            split: 數據集分割 ('train' 或 'test')
+            alpha: Dirichlet 分布的參數，控制數據分布的不平衡程度
+            n_clients: 總客戶端數量
+        """
+        super().__init__()
+        self.alpha = alpha
+        self.n_clients = n_clients
+        
+        # 根據數據集名稱加載對應的數據
+        if dataset_name == 'imdb':
+            dataset = IMDBDataset(split)
+        elif dataset_name == 'ag_news':
+            dataset = AGNewsDataset(split)
+        elif dataset_name == 'dbpedia_14':
+            dataset = DBPediaDataset(split)
+        elif dataset_name == 'sst2':
+            dataset = SST2Dataset(split)
+        else:
+            raise ValueError(f"不支持的數據集: {dataset_name}")
+            
+        self.data = dataset.data
+        self.labels = dataset.labels
+        self.vocab = dataset.vocab
+        self.vocab_size = dataset.vocab_size
+        
+        # 如果是訓練集且指定了客戶端數量，則分配數據
+        if split == 'train' and n_clients is not None:
+            self.client_indices = self._assign_client_data()
+        else:
+            self.client_indices = None
+        
+    def _assign_client_data(self):
+        """
+        使用 Dirichlet 分布為所有客戶端分配數據
+        Returns:
+            Dict[int, np.ndarray]: 客戶端 ID 到數據索引的映射
+        """
+        # 獲取所有唯一的標籤
+        unique_labels = np.unique(self.labels)
+        n_classes = len(unique_labels)
+        
+        # 為每個類別生成 Dirichlet 分布
+        label_distribution = np.random.dirichlet([self.alpha] * self.n_clients)
+        
+        # 初始化客戶端數據索引字典
+        client_indices = {i: [] for i in range(self.n_clients)}
+        
+        # 為每個類別分配數據
+        for label in unique_labels:
+            # 獲取當前類別的所有樣本索引
+            label_indices = np.where(self.labels == label)[0]
+            n_samples = len(label_indices)
+            
+            # 為每個客戶端分配樣本
+            for client_id in range(self.n_clients):
+                n_samples_for_client = int(n_samples * label_distribution[client_id])
+                if n_samples_for_client > 0:
+                    selected_indices = np.random.choice(
+                        label_indices, 
+                        size=n_samples_for_client, 
+                        replace=False
+                    )
+                    client_indices[client_id].extend(selected_indices)
+        
+        # 將列表轉換為 numpy 數組
+        return {k: np.array(v) for k, v in client_indices.items()}
+    
+    def get_client_data(self, client_id):
+        """
+        獲取指定客戶端的數據索引
+        Args:
+            client_id: 客戶端 ID
+        Returns:
+            np.ndarray: 分配給該客戶端的數據索引
+        """
+        if self.client_indices is None:
+            raise ValueError("此數據集未分配客戶端數據")
+        if client_id not in self.client_indices:
+            raise ValueError(f"客戶端 ID {client_id} 不存在")
+        return self.client_indices[client_id]

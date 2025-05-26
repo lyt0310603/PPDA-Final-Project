@@ -10,7 +10,6 @@ import copy
 import datetime
 import random
 
-
 from model import *
 from utils import *
 
@@ -33,10 +32,29 @@ def get_args():
     parser.add_argument('--model_buffer_size', type=int, default=1, help='store how many previous models for contrastive loss')
     parser.add_argument('--sample_fraction', type=float, default=1.0, help='how many clients are sampled in each round')
     parser.add_argument('--save_path', type=str, help='the path to save the results')
+    parser.add_argument('--beta', type=float, default=0.5,
+                        help='The parameter for the dirichlet distribution for data partitioning')
 
     args = parser.parse_args()
     return args
 
 if __name__ == '__main__':
     args = get_args()
+    
+    # 創建數據集
+    train_dataset, test_dataset = create_moon_datasets(
+        dataset_name=args.dataset.lower(),
+        n_clients=args.n_parties,
+        alpha=args.beta
+    )
+    
+    # 創建 DataLoader
+    client_dataloaders, test_dataloader = create_moon_dataloaders(
+        train_dataset,
+        test_dataset,
+        batch_size=args.batch_size
+    )
+    
+    # 設置設備
+    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     
