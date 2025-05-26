@@ -17,7 +17,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     
     parser.add_argument('--model', type=str, default='LSTM', choices=['LSTM', 'Transformer'], help='model used in training')
-    parser.add_argument('--dataset', type=str, default='imdb', choices=['imdb', 'ag_news', 'dbpedia_14', 'sst2', '20newsgroups', 'trec', 'yelp'], help='dataset used in training')
+    parser.add_argument('--dataset', type=str, default='imdb', choices=['imdb', 'ag_news', 'dbpedia_14', 'sst2', '20newsgroups', 'trec', 'yelp_review'], help='dataset used in training')
     parser.add_argument('--max_length', type=int, default=350, help="max length of text")
     parser.add_argument('--batch_size', type=int, default=32, help='batch size for training')
     parser.add_argument('--lr', type=float, default=0.001, help='learning rate for training')

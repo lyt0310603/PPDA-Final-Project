@@ -81,7 +81,7 @@ class IMDBDataset(TextDataset):
         super().__init__()
         dataset = load_dataset('imdb', split=split)
         self.data = dataset['text']
-        self.labels = dataset['label']
+        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
         self.create_vocab()
 
 class AGNewsDataset(TextDataset):
@@ -89,7 +89,7 @@ class AGNewsDataset(TextDataset):
         super().__init__()
         dataset = load_dataset('ag_news', split=split)
         self.data = dataset['text']
-        self.labels = dataset['label']
+        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
         self.create_vocab()
 
 class DBPediaDataset(TextDataset):
@@ -97,7 +97,7 @@ class DBPediaDataset(TextDataset):
         super().__init__()
         dataset = load_dataset('dbpedia_14', split=split)
         self.data = dataset['content']
-        self.labels = dataset['label']
+        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
         self.create_vocab()
 
 class SST2Dataset(TextDataset):
@@ -105,31 +105,31 @@ class SST2Dataset(TextDataset):
         super().__init__()
         dataset = load_dataset('glue', 'sst2', split=split)
         self.data = dataset['sentence']
-        self.labels = dataset['label']
+        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
         self.create_vocab()
 
 class Newsgroups20Dataset(TextDataset):
     def __init__(self, split='train'):
         super().__init__()
-        dataset = load_dataset('20newsgroups', split=split)
+        dataset = load_dataset('SetFit/20_newsgroups', split=split)
         self.data = dataset['text']
-        self.labels = dataset['label']
+        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
         self.create_vocab()
 
 class TRECDataset(TextDataset):
     def __init__(self, split='train'):
         super().__init__()
-        dataset = load_dataset('trec', split=split)
+        dataset = load_dataset('trec', split=split, trust_remote_code=True)
         self.data = dataset['text']
-        self.labels = dataset['label']
+        self.labels = np.array(dataset['coarse_label'], dtype=np.int64)  # 使用粗粒度標籤
         self.create_vocab()
 
 class YelpReviewDataset(TextDataset):
     def __init__(self, split='train'):
         super().__init__()
-        dataset = load_dataset('yelp_review', split=split)
+        dataset = load_dataset('yelp_review_full', split=split)
         self.data = dataset['text']
-        self.labels = dataset['label']
+        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
         self.create_vocab()
 
 class MOONTextDataset(TextDataset):
@@ -185,31 +185,59 @@ class MOONTextDataset(TextDataset):
         unique_labels = np.unique(self.labels)
         n_classes = len(unique_labels)
         
-        # 為每個類別生成 Dirichlet 分布
-        label_distribution = np.random.dirichlet([self.alpha] * self.n_clients)
-        
         # 初始化客戶端數據索引字典
         client_indices = {i: [] for i in range(self.n_clients)}
         
-        # 為每個類別分配數據
-        for label in unique_labels:
-            # 獲取當前類別的所有樣本索引
-            label_indices = np.where(self.labels == label)[0]
-            n_samples = len(label_indices)
-            
-            # 為每個客戶端分配樣本
-            for client_id in range(self.n_clients):
-                n_samples_for_client = int(n_samples * label_distribution[client_id])
-                if n_samples_for_client > 0:
-                    selected_indices = np.random.choice(
-                        label_indices, 
-                        size=n_samples_for_client, 
-                        replace=False
-                    )
-                    client_indices[client_id].extend(selected_indices)
+        # 根據數據集特點設置最小樣本數要求
+        total_samples = len(self.labels)
+        avg_samples_per_client = total_samples / self.n_clients
         
-        # 將列表轉換為 numpy 數組
-        return {k: np.array(v) for k, v in client_indices.items()}
+        # 根據數據集大小和類別數動態調整最小樣本數
+        if total_samples < 10000:  # 小型數據集（如 SST2）
+            min_require_size = max(10, int(avg_samples_per_client * 0.1))
+        elif total_samples < 50000:  # 中型數據集（如 IMDB）
+            min_require_size = max(20, int(avg_samples_per_client * 0.05))
+        else:  # 大型數據集（如 DBPedia）
+            min_require_size = max(50, int(avg_samples_per_client * 0.02))
+        
+        # 根據類別數調整最小樣本數
+        min_require_size = max(min_require_size, n_classes * 2)  # 確保每個類別至少有 2 個樣本
+        
+        min_size = 0
+        
+        while min_size < min_require_size:
+            # 初始化每個客戶端的索引列表
+            idx_batch = [[] for _ in range(self.n_clients)]
+            
+            # 對每個類別進行分配
+            for k in unique_labels:
+                # 獲取當前類別的所有樣本索引
+                idx_k = np.where(self.labels == k)[0]
+                np.random.shuffle(idx_k)
+                
+                # 生成 Dirichlet 分布
+                proportions = np.random.dirichlet(np.repeat(self.alpha, self.n_clients))
+                
+                # 確保每個客戶端的樣本數不超過平均值
+                proportions = np.array([p * (len(idx_j) < len(self.labels) / self.n_clients) 
+                                     for p, idx_j in zip(proportions, idx_batch)])
+                proportions = proportions / proportions.sum()
+                
+                # 計算每個客戶端應該獲得的樣本數
+                proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
+                
+                # 分配樣本
+                idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
+                
+                # 更新最小樣本數
+                min_size = min([len(idx_j) for idx_j in idx_batch])
+        
+        # 打亂每個客戶端的數據順序
+        for j in range(self.n_clients):
+            np.random.shuffle(idx_batch[j])
+            client_indices[j] = np.array(idx_batch[j])
+        
+        return client_indices
     
     def get_client_data(self, client_id):
         """
