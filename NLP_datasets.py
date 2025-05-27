@@ -19,6 +19,34 @@ class TextDataset(Dataset):
         self.vocab = {}
         self.vocab_size = 0
         
+    def _clean_and_truncate_data(self):
+        """
+        清理和截斷數據：
+        1. 移除空白文本
+        2. 截斷過長的文本
+        """
+        cleaned_data = []
+        cleaned_labels = []
+        
+        for text, label in zip(self.data, self.labels):
+            # 移除空白文本
+            if not text or not text.strip():
+                continue
+                
+            # 分割文本並截斷
+            words = text.split()
+            if len(words) > self.max_length:
+                words = words[:self.max_length]
+            
+            # 重新組合文本
+            cleaned_text = ' '.join(words)
+            cleaned_data.append(cleaned_text)
+            cleaned_labels.append(label)
+        
+        self.data = cleaned_data
+        self.labels = cleaned_labels
+        print(f'清理後的數據數量: {len(self.data)}')
+        
     def create_vocab(self, vocab_size=30000):
         """
         建立詞彙表
@@ -71,7 +99,7 @@ class TextDataset(Dataset):
     
     def __getitem__(self, idx):
         text = self.data[idx]
-        label = self.labels[idx]
+        label = int(self.labels[idx])  # 確保標籤是 Python int
         sequence = self.convert2id(text)
         return sequence, label
 
@@ -81,7 +109,8 @@ class IMDBDataset(TextDataset):
         super().__init__()
         dataset = load_dataset('imdb', split=split)
         self.data = dataset['text']
-        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
+        self.labels = np.array(dataset['label'], dtype=np.int64)
+        self._clean_and_truncate_data()
         self.create_vocab()
 
 class AGNewsDataset(TextDataset):
@@ -89,7 +118,8 @@ class AGNewsDataset(TextDataset):
         super().__init__()
         dataset = load_dataset('ag_news', split=split)
         self.data = dataset['text']
-        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
+        self.labels = np.array(dataset['label'], dtype=np.int64)
+        self._clean_and_truncate_data()
         self.create_vocab()
 
 class DBPediaDataset(TextDataset):
@@ -97,7 +127,8 @@ class DBPediaDataset(TextDataset):
         super().__init__()
         dataset = load_dataset('dbpedia_14', split=split)
         self.data = dataset['content']
-        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
+        self.labels = np.array(dataset['label'], dtype=np.int64)
+        self._clean_and_truncate_data()
         self.create_vocab()
 
 class SST2Dataset(TextDataset):
@@ -105,7 +136,8 @@ class SST2Dataset(TextDataset):
         super().__init__()
         dataset = load_dataset('glue', 'sst2', split=split)
         self.data = dataset['sentence']
-        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
+        self.labels = np.array(dataset['label'], dtype=np.int64)
+        self._clean_and_truncate_data()
         self.create_vocab()
 
 class Newsgroups20Dataset(TextDataset):
@@ -113,7 +145,8 @@ class Newsgroups20Dataset(TextDataset):
         super().__init__()
         dataset = load_dataset('SetFit/20_newsgroups', split=split)
         self.data = dataset['text']
-        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
+        self.labels = np.array(dataset['label'], dtype=np.int64)
+        self._clean_and_truncate_data()
         self.create_vocab()
 
 class TRECDataset(TextDataset):
@@ -121,7 +154,8 @@ class TRECDataset(TextDataset):
         super().__init__()
         dataset = load_dataset('trec', split=split, trust_remote_code=True)
         self.data = dataset['text']
-        self.labels = np.array(dataset['coarse_label'], dtype=np.int64)  # 使用粗粒度標籤
+        self.labels = np.array(dataset['coarse_label'], dtype=np.int64)
+        self._clean_and_truncate_data()
         self.create_vocab()
 
 class YelpReviewDataset(TextDataset):
@@ -129,11 +163,12 @@ class YelpReviewDataset(TextDataset):
         super().__init__()
         dataset = load_dataset('yelp_review_full', split=split)
         self.data = dataset['text']
-        self.labels = np.array(dataset['label'], dtype=np.int64)  # 直接轉換為整數陣列
+        self.labels = np.array(dataset['label'], dtype=np.int64)
+        self._clean_and_truncate_data()
         self.create_vocab()
 
 class MOONTextDataset(TextDataset):
-    def __init__(self, dataset_name, split='train', alpha=0.5, n_clients=None):
+    def __init__(self, dataset_name, split='train', alpha=0.5, n_clients=None, max_length=512):
         """
         初始化 MOON 數據集
         Args:
@@ -141,8 +176,9 @@ class MOONTextDataset(TextDataset):
             split: 數據集分割 ('train' 或 'test')
             alpha: Dirichlet 分布的參數，控制數據分布的不平衡程度
             n_clients: 總客戶端數量
+            max_length: 文本最大長度
         """
-        super().__init__()
+        super().__init__(max_length=max_length)
         self.alpha = alpha
         self.n_clients = n_clients
         

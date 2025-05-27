@@ -6,6 +6,7 @@ __pycache__/
 # Visualization files
 visualize_distribution.py
 distribution_*.png
+test_seed.py
 
 # IDE specific files
 .vscode/

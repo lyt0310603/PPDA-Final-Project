@@ -34,6 +34,7 @@ def get_args():
     parser.add_argument('--save_path', type=str, help='the path to save the results')
     parser.add_argument('--beta', type=float, default=0.5,
                         help='The parameter for the dirichlet distribution for data partitioning')
+    parser.add_argument('--seed', type=int, default=42, help='random seed for reproducibility')
 
     args = parser.parse_args()
     return args
@@ -41,11 +42,15 @@ def get_args():
 if __name__ == '__main__':
     args = get_args()
     
+    # 設置隨機種子
+    set_seed(args.seed)
+    
     # 創建數據集
     train_dataset, test_dataset = create_moon_datasets(
         dataset_name=args.dataset.lower(),
         n_clients=args.n_parties,
-        alpha=args.beta
+        alpha=args.beta,
+        max_length=args.max_length
     )
     
     # 創建 DataLoader
