@@ -39,6 +39,63 @@ def get_args():
     args = parser.parse_args()
     return args
 
+def init_nets(n_parties, args, device='cpu'):
+    # 設定分類數量
+    if args.dataset == 'imdb':
+        n_classes = 2
+    elif args.dataset == 'ag_news':
+        n_classes = 4
+    elif args.dataset == 'dbpedia_14':
+        n_classes = 14
+    elif args.dataset == 'sst2':
+        n_classes = 2
+    elif args.dataset == '20newsgroups':
+        n_classes = 20
+    elif args.dataset == 'trec':
+        n_classes = 6
+    elif args.dataset == 'yelp_review':
+        n_classes = 5
+    else:
+        raise ValueError(f"不支持的數據集: {args.dataset}")
+    
+    #   初始化網絡
+    nets = {net_i: None for net_i in range(n_parties)}
+    if args.alg == 'moon':
+        for net_i in range(n_parties):
+            if args.model == 'LSTM':
+                pass
+            elif args.model == 'Transformer':
+                pass
+    elif args.alg == 'fedavg':
+        for net_i in range(n_parties):
+            if args.model == 'LSTM':
+                pass
+            elif args.model == 'Transformer':
+                pass
+    elif args.alg == 'fedprox':
+        for net_i in range(n_parties):
+            if args.model == 'LSTM':
+                pass
+            elif args.model == 'Transformer':
+                pass
+
+    return nets       
+
+def local_train_net():
+    pass
+
+def train_fedprox():
+    pass
+
+def train_moon():
+    pass
+
+def train_fedavg():
+    pass
+
+
+
+
 if __name__ == '__main__':
     args = get_args()
     
