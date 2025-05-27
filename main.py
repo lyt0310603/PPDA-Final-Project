@@ -45,11 +45,13 @@ if __name__ == '__main__':
     # 設置隨機種子
     set_seed(args.seed)
     
+    print(f'正在建立資料集: {args.dataset}')
+
     # 創建數據集
     train_dataset, test_dataset = create_moon_datasets(
         dataset_name=args.dataset.lower(),
         n_clients=args.n_parties,
-        alpha=args.beta,
+        beta=args.beta,
         max_length=args.max_length
     )
     

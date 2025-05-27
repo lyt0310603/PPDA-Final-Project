@@ -168,18 +168,18 @@ class YelpReviewDataset(TextDataset):
         self.create_vocab()
 
 class MOONTextDataset(TextDataset):
-    def __init__(self, dataset_name, split='train', alpha=0.5, n_clients=None, max_length=512):
+    def __init__(self, dataset_name, split='train', beta=0.5, n_clients=None, max_length=512):
         """
         初始化 MOON 數據集
         Args:
             dataset_name: 數據集名稱 ('imdb', 'ag_news', 'dbpedia_14', 'sst2', '20newsgroups', 'trec', 'yelp_review')
             split: 數據集分割 ('train' 或 'test')
-            alpha: Dirichlet 分布的參數，控制數據分布的不平衡程度
+            beta: Dirichlet 分布的參數，控制數據分布的不平衡程度
             n_clients: 總客戶端數量
             max_length: 文本最大長度
         """
         super().__init__(max_length=max_length)
-        self.alpha = alpha
+        self.beta = beta
         self.n_clients = n_clients
         
         # 根據數據集名稱加載對應的數據
@@ -252,7 +252,7 @@ class MOONTextDataset(TextDataset):
                 np.random.shuffle(idx_k)
                 
                 # 生成 Dirichlet 分布
-                proportions = np.random.dirichlet(np.repeat(self.alpha, self.n_clients))
+                proportions = np.random.dirichlet(np.repeat(self.beta, self.n_clients))
                 
                 # 確保每個客戶端的樣本數不超過平均值
                 proportions = np.array([p * (len(idx_j) < len(self.labels) / self.n_clients) 

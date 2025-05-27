@@ -30,7 +30,7 @@ def set_seed(seed):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-def create_moon_datasets(dataset_name, n_clients, alpha=0.5, max_length=512):
+def create_moon_datasets(dataset_name, n_clients, beta=0.5, max_length=512):
     """
     創建 MOON 數據集
     Args:
@@ -49,7 +49,7 @@ def create_moon_datasets(dataset_name, n_clients, alpha=0.5, max_length=512):
     train_dataset = MOONTextDataset(
         dataset_name, 
         split='train', 
-        alpha=alpha,
+        beta=beta,
         n_clients=n_clients,
         max_length=max_length
     )
