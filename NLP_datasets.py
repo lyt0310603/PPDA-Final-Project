@@ -201,7 +201,7 @@ class MOONTextDataset(TextDataset):
             raise ValueError(f"不支持的數據集: {dataset_name}")
             
         self.data = dataset.data
-        self.labels = dataset.labels
+        self.labels = np.array(dataset.labels, dtype=np.int64)
         self.vocab = dataset.vocab
         self.vocab_size = dataset.vocab_size
         
