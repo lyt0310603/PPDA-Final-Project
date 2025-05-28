@@ -13,6 +13,8 @@ from NLP_datasets import MOONTextDataset
 from model import *
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
+from collections import defaultdict
+from tqdm import tqdm
 
 
 def set_seed(seed):
@@ -107,4 +109,47 @@ def create_moon_dataloaders(train_dataset, test_dataset, batch_size=32):
         client_dataloaders[client_id] = client_dataloader
     
     return client_dataloaders, test_dataloader
+    
+def load_glove_embeddings(vocab, embedding_dim=300):
+    """
+    載入 GloVe 預訓練詞嵌入
+    
+    參數:
+        vocab (dict): 詞彙表，格式為 {word: index}
+        embedding_dim (int): 詞嵌入維度，必須與 GloVe 文件維度相匹配 (50, 100, 200, 300)
+    
+    返回:
+        torch.Tensor: 預訓練詞嵌入矩陣，形狀為 [vocab_size, embedding_dim]
+    """
+    if embedding_dim not in [50, 100, 200, 300]:
+        raise ValueError("embedding_dim 必須是 50, 100, 200 或 300")
+        
+    print(f"正在載入 GloVe {embedding_dim}d 詞嵌入...")
+    
+    fname = f'glove.6B.{embedding_dim}d.txt'
+    
+    with open(fname, 'rt', encoding='utf8') as fi:
+        full_content = fi.read().strip().split('\n')
+    
+    data = {}
+    for i in tqdm(range(len(full_content)), total=len(full_content), desc='loading glove vocabs...'):
+        i_word = full_content[i].split(' ')[0]
+        if i_word not in vocab.keys():
+            continue
+        i_embeddings = [float(val) for val in full_content[i].split(' ')[1:]]
+        data[i_word] = i_embeddings
+    
+    # 建立詞嵌入矩陣
+    w = []
+    find = 0
+    for word in vocab.keys():
+        try:
+            w.append(torch.tensor(data[word]))
+            find += 1
+        except:
+            w.append(torch.rand(embedding_dim))
+    
+    print(f'在 GloVe {embedding_dim}d 中找到 {find} 個詞')
+    return torch.stack(w, dim=0)
+
     
