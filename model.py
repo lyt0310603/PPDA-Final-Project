@@ -9,20 +9,11 @@ class LSTM(nn.Module):
         
         參數:
             args: 包含模型參數的命名空間
-                - vocab_size: 詞彙表大小
-                - embedding_dim: 詞嵌入維度
                 - hidden_dim: LSTM 隱藏層維度
                 - n_layers: LSTM 層數
                 - dropout: Dropout 比率
-                - pretrained_embeddings: 預訓練的詞嵌入矩陣
-                - freeze_embeddings: 是否凍結詞嵌入層
         """
         super().__init__()
-        
-        # 初始化詞嵌入層
-        self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim)
-        if args.pretrained_embeddings is not None:
-            self.embedding = nn.Embedding.from_pretrained(args.pretrained_embeddings, freeze=args.freeze_embeddings)
         
         # 手動建立多個 LSTM 層
         self.lstm_layers = nn.ModuleList()
@@ -39,20 +30,15 @@ class LSTM(nn.Module):
         
         self.dropout = nn.Dropout(args.dropout)
         
-    def forward(self, x):
+    def forward(self, embedded):
         """
         前向傳播
         
         參數:
-            x: 輸入文本張量 [batch_size, seq_len]
+            embedded: 輸入文本張量 [batch_size, seq_len, embedding_dim]
         返回:
             last_hidden: 最後一個時間步的隱藏狀態 [batch_size, hidden_dim * 2]
         """
-        # text = [batch size, sent len]
-        
-        embedded = self.dropout(self.embedding(x))
-        # embedded = [batch size, sent len, emb dim]
-        
         # 逐層通過 LSTM
         current_input = embedded
         for lstm_layer in self.lstm_layers:
@@ -82,6 +68,13 @@ class BaseModel(nn.Module):
         self.pretrained_embeddings = args.pretrained_embeddings
         self.freeze_embeddings = args.freeze_embeddings
 
+        # 初始化詞嵌入層
+        self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim)
+        if args.pretrained_embeddings is not None:
+            self.embedding = nn.Embedding.from_pretrained(args.pretrained_embeddings, freeze=args.freeze_embeddings)
+        
+        self.dropout = nn.Dropout(args.dropout)
+
         if self.model_name == 'LSTM':
             self.encoder = LSTM(args)
         elif self.model_name == 'Transformer':
@@ -99,7 +92,8 @@ class BaseModel(nn.Module):
         )
     
     def forward(self, x):
-        hidden = self.encoder(x)
+        embedded = self.dropout(self.embedding(x))
+        hidden = self.encoder(embedded)
         return self.fc(hidden), None
     
     def loss(self, outputs, labels):
@@ -112,7 +106,8 @@ class MOONModel(BaseModel):
         self.temperature = args.temperature
     
     def forward(self, x):
-        hidden = self.encoder(x)
+        embedded = self.dropout(self.embedding(x))
+        hidden = self.encoder(embedded)
         projected = self.projection_head(hidden)
         return self.fc(hidden), projected
     
