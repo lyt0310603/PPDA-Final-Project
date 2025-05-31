@@ -12,12 +12,12 @@ import itertools
 
 
 class TextDataset(Dataset):
-    def __init__(self, max_length=512):
+    def __init__(self, max_length=512, vocab_size=30000):
         self.max_length = max_length
+        self.vocab_size = vocab_size
         self.data = []
         self.labels = []
         self.vocab = {}
-        self.vocab_size = 0
         
     def _clean_and_truncate_data(self):
         """
@@ -47,11 +47,9 @@ class TextDataset(Dataset):
         self.labels = cleaned_labels
         print(f'清理後的數據數量: {len(self.data)}')
         
-    def create_vocab(self, vocab_size=30000):
+    def create_vocab(self):
         """
         建立詞彙表
-        Args:
-            vocab_size: 詞彙表大小預設為30000
         """
         # 將所有文字分割成詞並合併
         corpus = [text.split() for text in self.data]
@@ -65,10 +63,10 @@ class TextDataset(Dataset):
         sorted_words = count_words.most_common()
         
         # 確定實際詞彙表大小
-        if vocab_size > len(sorted_words):
+        if self.vocab_size > len(sorted_words):
             v = len(sorted_words)
         else:
-            v = vocab_size - 2  # 減去 <pad> 和 <unk>
+            v = self.vocab_size - 2  # 減去 <pad> 和 <unk>
             
         # 建立詞到索引的映射
         self.vocab = {w: i + 2 for i, (w, c) in enumerate(sorted_words[:v])}
@@ -168,7 +166,7 @@ class YelpReviewDataset(TextDataset):
         self.create_vocab()
 
 class MOONTextDataset(TextDataset):
-    def __init__(self, dataset_name, split='train', beta=0.5, n_clients=None, max_length=512):
+    def __init__(self, dataset_name, split='train', beta=0.5, n_clients=None, max_length=512, vocab_size=30000):
         """
         初始化 MOON 數據集
         Args:
@@ -177,8 +175,9 @@ class MOONTextDataset(TextDataset):
             beta: Dirichlet 分布的參數，控制數據分布的不平衡程度
             n_clients: 總客戶端數量
             max_length: 文本最大長度
+            vocab_size: 詞彙表大小
         """
-        super().__init__(max_length=max_length)
+        super().__init__(max_length=max_length, vocab_size=vocab_size)
         self.beta = beta
         self.n_clients = n_clients
         

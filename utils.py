@@ -32,20 +32,21 @@ def set_seed(seed):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-def create_moon_datasets(dataset_name, n_clients, beta=0.5, max_length=512):
+def create_moon_datasets(dataset_name, n_clients, beta=0.5, max_length=512, vocab_size=30000):
     """
     創建 MOON 數據集
     Args:
         dataset_name: 數據集名稱
         n_clients: 客戶端數量
-        alpha: Dirichlet 分布參數
+        beta: Dirichlet 分布參數
         max_length: 文本最大長度
+        vocab_size: 詞彙表大小
     Returns:
         train_dataset: 訓練數據集
         test_dataset: 測試數據集
     """
     # 創建測試集
-    test_dataset = MOONTextDataset(dataset_name, split='test', max_length=max_length)
+    test_dataset = MOONTextDataset(dataset_name, split='test', max_length=max_length, vocab_size=vocab_size)
     
     # 創建訓練集（包含所有客戶端的數據）
     train_dataset = MOONTextDataset(
@@ -53,7 +54,8 @@ def create_moon_datasets(dataset_name, n_clients, beta=0.5, max_length=512):
         split='train', 
         beta=beta,
         n_clients=n_clients,
-        max_length=max_length
+        max_length=max_length,
+        vocab_size=vocab_size
     )
     
     return train_dataset, test_dataset
