@@ -326,6 +326,7 @@ class MOONModel(BaseModel):
             total_loss: 總損失
         """
         logits, projected = outputs
+        projected = F.normalize(projected, dim=1)
         cls_loss = F.cross_entropy(logits, labels)
         
         if global_weight is None or prev_weights is None or len(prev_weights) == 0:
