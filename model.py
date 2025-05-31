@@ -222,6 +222,12 @@ class BaseModel(nn.Module):
     
     def loss(self, outputs, labels):
         return F.cross_entropy(outputs, labels)
+        
+    def get_weights(self):
+        """獲取模型的所有權重"""
+        return {
+            'encoder': {k: v.detach().clone() for k, v in self.encoder.state_dict().items()}
+        }
 
 class MOONModel(BaseModel):
     def __init__(self, args):
@@ -239,6 +245,12 @@ class MOONModel(BaseModel):
         hidden = self.encoder(embedded, mask)
         projected = self.projection_head(hidden)
         return self.fc(hidden), projected
+    
+    def get_weights(self):
+        """獲取模型的所有權重"""
+        weights = super().get_weights()
+        weights['projection'] = {k: v.detach().clone() for k, v in self.projection_head.state_dict().items()}
+        return weights
     
     def get_projection_weights(self):
         """獲取投影頭的權重"""
