@@ -102,14 +102,50 @@ def init_nets(n_parties, args, device='cpu'):
 
     return nets
 
-def local_train_net():
-    pass
+def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, global_model_w=None, prev_model_pool=None, round=None, device='cpu'):
+    avg_acc = 0.0
+    acc_list = []
+    n_epoch = args.epochs
+
+    for net_id, net in this_round_nets.items():
+        client_dataloader = client_dataloaders[net_id]
+
+        if args.alg == 'fedavg':
+            pass
+        elif args.alg == 'fedprox':
+            pass
+        elif args.alg == 'moon':
+            # 取出對應客戶端的歷史模型權重
+            prev_models_w = []
+            for i in range(len(prev_model_pool)):
+                prev_models_w.append(prev_model_pool[i][net_id]) 
+
+            # 進行 MOON 學習訓練
+            trainacc, testacc = train_moon(net_id, net, global_model_w, prev_models_w, client_dataloader, test_dataloader, n_epoch, args, round, device=device)
 
 def train_fedprox():
     pass
 
-def train_moon():
-    pass
+def train_moon(net_id, net, global_model_w, prev_models_w, client_dataloader, test_dataloader, n_epoch, args, round, device='cpu'):
+    net.to(device)
+    opt = optim.Adam(net.parameters(), lr=args.lr)
+
+    for epoch in range(n_epoch):
+        net.train()
+        for batch_idx, (data, target) in enumerate(client_dataloader):
+            data, target = data.to(device), target.to(device)
+
+            opt.zero_grad()
+            results = net(data)
+            loss = net.loss(results, target, data, global_model_w, prev_models_w)
+            loss.backward()
+            opt.step()
+
+    train_acc = compute_accuracy(net, client_dataloader, device)
+    test_acc = compute_accuracy(net, test_dataloader, device)
+
+    return train_acc, test_acc
+
 
 def train_fedavg():
     pass
@@ -160,6 +196,52 @@ if __name__ == '__main__':
     # 初始化服務器網絡
     global_nets = init_nets(n_parties=1, args=args, device=device)
     global_model = global_nets[0]
+    
+    # 計算每輪參與訓練的客戶端數量
+    n_party_per_round = int(args.n_parties * args.sample_fraction)
+    party_list = [i for i in range(args.n_parties)]
+    party_list_rounds = []
+    if n_party_per_round != args.n_parties:
+        for i in range(args.comm_round):
+            party_list_rounds.append(random.sample(party_list, n_party_per_round))
+    else:
+        for i in range(args.comm_round):
+            party_list_rounds.append(party_list)
+
+    if args.alg == 'moon':
+        # 初始化模型緩存
+        old_nets_pool = []
+        for _ in range(args.model_buffer_size):
+            round_weights = {}
+            for client_id in range(args.n_parties):
+                round_weights[client_id] = clients_nets[client_id].get_weights()
+            old_nets_pool.append(round_weights)
+        
+        for round in range(args.comm_round):
+            # 選擇本輪參與訓練的客戶端列表
+            party_list_this_round = party_list_rounds[round]
+
+            # 將全域模型設定為評估模式
+            global_model.eval()
+
+            # 凍結全域模型參數,不進行梯度更新
+            for param in global_model.parameters():
+                param.requires_grad = False
+
+            # 取得全域模型的權重
+            global_w = global_model.get_weights()
+
+            # 選擇本輪參與訓練的客戶端模型
+            nets_this_round = {k: clients_nets[k] for k in party_list_this_round}
+
+            # 將全域模型權重載入到每個客戶端模型
+            for net in nets_this_round.values():
+                net.load_state_dict(global_w)
+
+            # 進行本地訓練
+            local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_w, old_nets_pool, round, device)
+
+
 
     
     
