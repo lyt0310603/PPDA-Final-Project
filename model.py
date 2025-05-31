@@ -82,11 +82,9 @@ class Transformer(nn.Module):
         # 手動建立多個 Transformer 編碼器層
         self.encoder_layers = nn.ModuleList()
         for i in range(args.n_layers):
-            # 最後一層的輸出維度調整為 hidden_dim * 2
-            d_model = args.hidden_dim * 2 if i == args.n_layers - 1 else args.embedding_dim
             self.encoder_layers.append(
                 nn.TransformerEncoderLayer(
-                    d_model=d_model,
+                    d_model=args.embedding_dim,
                     nhead=args.n_heads,
                     dim_feedforward=args.hidden_dim * 4,
                     dropout=args.dropout,
@@ -183,7 +181,7 @@ class BaseModel(nn.Module):
         self.hidden_dim = args.hidden_dim
         self.output_dim = args.n_classes
         self.n_layers = args.n_layers
-        self.dropout = args.dropout
+        self.dropout_rate = args.dropout
         self.pretrained_embeddings = args.pretrained_embeddings
         self.freeze_embeddings = args.freeze_embeddings
 
@@ -192,21 +190,23 @@ class BaseModel(nn.Module):
         if args.pretrained_embeddings is not None:
             self.embedding = nn.Embedding.from_pretrained(args.pretrained_embeddings, freeze=args.freeze_embeddings)
         
-        self.dropout = nn.Dropout(args.dropout)
+        self.dropout = nn.Dropout(self.dropout_rate)
 
         if self.model_name == 'LSTM':
             self.encoder = LSTM(args)
+            self.encoder_output_dim = args.hidden_dim * 2
         elif self.model_name == 'Transformer':
             self.encoder = Transformer(args)
-        
+            self.encoder_output_dim = args.embedding_dim
+
         # 使用 Sequential 包裝多層全連接網路
         self.fc = nn.Sequential(
-            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.Linear(self.encoder_output_dim, self.hidden_dim),
             nn.ReLU(),
-            nn.Dropout(self.dropout),
+            nn.Dropout(self.dropout_rate),
             nn.Linear(self.hidden_dim, self.hidden_dim // 2),
             nn.ReLU(), 
-            nn.Dropout(self.dropout),
+            nn.Dropout(self.dropout_rate),
             nn.Linear(self.hidden_dim // 2, self.output_dim)
         )
 
@@ -238,16 +238,17 @@ class BaseModel(nn.Module):
             # 跳過預訓練的 embedding
             if name == 'embedding.weight' and self.pretrained_embeddings is not None:
                 continue
-            # 初始化其他所有參數
-            if 'weight' in name:
+            # 只對權重矩陣使用 Xavier 初始化
+            if 'weight' in name and len(param.shape) >= 2:
                 nn.init.xavier_uniform_(param)
+            # 對偏置項使用零初始化
             elif 'bias' in name:
                 nn.init.zeros_(param)
 
 class MOONModel(BaseModel):
     def __init__(self, args):
         super().__init__(args)
-        self.projection_head = nn.Linear(self.hidden_dim*2, args.projection_dim)
+        self.projection_head = nn.Linear(self.encoder_output_dim, args.projection_dim)
         self.temperature = args.temperature
     
     def forward(self, x, mask=None):
