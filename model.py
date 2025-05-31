@@ -209,6 +209,9 @@ class BaseModel(nn.Module):
             nn.Dropout(self.dropout),
             nn.Linear(self.hidden_dim // 2, self.output_dim)
         )
+
+        # 初始化
+        self.init_weights()
     
     def forward(self, x, mask=None):
         embedded = self.dropout(self.embedding(x))
@@ -228,6 +231,18 @@ class BaseModel(nn.Module):
         return {
             'encoder': {k: v.detach().clone() for k, v in self.encoder.state_dict().items()}
         }
+        
+    def init_weights(self):
+        """初始化模型權重，除了預訓練的 embedding"""
+        for name, param in self.named_parameters():
+            # 跳過預訓練的 embedding
+            if name == 'embedding.weight' and self.pretrained_embeddings is not None:
+                continue
+            # 初始化其他所有參數
+            if 'weight' in name:
+                nn.init.xavier_uniform_(param)
+            elif 'bias' in name:
+                nn.init.zeros_(param)
 
 class MOONModel(BaseModel):
     def __init__(self, args):
@@ -335,11 +350,12 @@ class MOONModel(BaseModel):
 class FedAvgModel(BaseModel):
     def __init__(self, args):
         super().__init__(args)
+        self.init_weights()
 
 class FedProxModel(BaseModel):
     def __init__(self, args):
         super().__init__(args)
-    
+        self.init_weights()
     def get_weights(self):
         """獲取模型的所有權重"""
         return {k: v.detach().clone() for k, v in self.state_dict().items()}
