@@ -250,8 +250,8 @@ class MOONModel(BaseModel):
         super().__init__(args)
         self.projection_head = nn.Linear(self.encoder_output_dim, args.projection_dim)
         self.temperature = args.temperature
-        self.mu = args.mu  # 將 mu 作為模型屬性
-        
+        self.mu = args.mu
+        self.cos = nn.CosineSimilarity(dim=-1)  # 初始化餘弦相似度計算器
         self.init_weights()
     
     def forward(self, x, mask=None):
@@ -303,13 +303,16 @@ class MOONModel(BaseModel):
             hidden = self.encoder(embedded, mask)
             projected = self.projection_head(hidden)
             
+            # 正規化投影向量
+            projected = F.normalize(projected, dim=1)
+            
             # 恢復原始權重
             self.encoder.load_state_dict(current_encoder)
             self.projection_head.load_state_dict(current_projection)
             
             return projected
     
-    def loss(self, outputs, labels, x, global_weights=None, prev_weights=None):
+    def loss(self, outputs, labels, x, global_weight=None, prev_weights=None):
         """計算 MOON 損失
         
         參數:
@@ -317,7 +320,7 @@ class MOONModel(BaseModel):
             labels: 真實標籤
             x: 輸入數據
             global_weights: 全局模型的權重
-            prev_weights: 上一個本地模型的權重
+            prev_weights: 歷史模型權重的列表
             
         返回:
             total_loss: 總損失
@@ -325,28 +328,30 @@ class MOONModel(BaseModel):
         logits, projected = outputs
         cls_loss = F.cross_entropy(logits, labels)
         
-        if global_weights is None or prev_weights is None:
+        if global_weight is None or prev_weights is None or len(prev_weights) == 0:
             return cls_loss
             
         # 計算對比損失
-        global_projected = self._compute_projection(x, global_weights)
-        prev_projected = self._compute_projection(x, prev_weights)
+        global_projected = self._compute_projection(x, global_weight)
         
-        # 正規化投影向量
-        projected = F.normalize(projected, dim=1)
-        global_projected = F.normalize(global_projected, dim=1)
-        prev_projected = F.normalize(prev_projected, dim=1)
+        # 計算與全局模型的相似度作為正樣本
+        pos_sim = self.cos(projected, global_projected)
+        logits = pos_sim.reshape(-1, 1)
         
-        # 計算正樣本對的相似度（當前模型和全局模型）
-        pos_sim = torch.sum(projected * global_projected, dim=1) / self.temperature
+        # 計算與所有歷史模型的相似度作為負樣本
+        for prev_weight in prev_weights:
+            prev_projected = self._compute_projection(x, prev_weight)
+            neg_sim = self.cos(projected, prev_projected)
+            logits = torch.cat((logits, neg_sim.reshape(-1, 1)), dim=1)
         
-        # 計算負樣本對的相似度（當前模型和上一個本地模型）
-        neg_sim = torch.sum(projected * prev_projected, dim=1) / self.temperature
+        # 應用溫度縮放
+        logits /= self.temperature
         
-        # 計算 InfoNCE loss
-        logits = torch.stack([pos_sim, neg_sim], dim=1)
-        labels = torch.zeros(logits.size(0), device=logits.device, dtype=torch.long)
-        contrast_loss = F.cross_entropy(logits, labels)
+        # 創建標籤（第一個位置為正樣本）
+        contrast_labels = torch.zeros(x.size(0), device=x.device, dtype=torch.long)
+        
+        # 計算對比損失
+        contrast_loss = F.cross_entropy(logits, contrast_labels)
         
         return cls_loss + self.mu * contrast_loss
 
