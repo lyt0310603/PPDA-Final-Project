@@ -250,6 +250,9 @@ class MOONModel(BaseModel):
         super().__init__(args)
         self.projection_head = nn.Linear(self.encoder_output_dim, args.projection_dim)
         self.temperature = args.temperature
+        self.mu = args.mu  # 將 mu 作為模型屬性
+        
+        self.init_weights()
     
     def forward(self, x, mask=None):
         embedded = self.dropout(self.embedding(x))
@@ -306,7 +309,7 @@ class MOONModel(BaseModel):
             
             return projected
     
-    def loss(self, outputs, labels, x, global_weights=None, prev_weights=None, mu=0.1):
+    def loss(self, outputs, labels, x, global_weights=None, prev_weights=None):
         """計算 MOON 損失
         
         參數:
@@ -315,7 +318,6 @@ class MOONModel(BaseModel):
             x: 輸入數據
             global_weights: 全局模型的權重
             prev_weights: 上一個本地模型的權重
-            mu: 對比損失權重
             
         返回:
             total_loss: 總損失
@@ -346,7 +348,7 @@ class MOONModel(BaseModel):
         labels = torch.zeros(logits.size(0), device=logits.device, dtype=torch.long)
         contrast_loss = F.cross_entropy(logits, labels)
         
-        return cls_loss + mu * contrast_loss
+        return cls_loss + self.mu * contrast_loss
 
 class FedAvgModel(BaseModel):
     def __init__(self, args):
@@ -356,19 +358,20 @@ class FedAvgModel(BaseModel):
 class FedProxModel(BaseModel):
     def __init__(self, args):
         super().__init__(args)
+        self.mu = args.mu
         self.init_weights()
+        
     def get_weights(self):
         """獲取模型的所有權重"""
         return {k: v.detach().clone() for k, v in self.state_dict().items()}
     
-    def loss(self, outputs, labels, global_weights=None, mu=0.1):
+    def loss(self, outputs, labels, global_weights=None):
         """計算 FedProx 損失，包括分類損失和正則化項
         
         參數:
             outputs: 模型輸出
             labels: 真實標籤
             global_weights: 全局模型的權重
-            mu: 正則化係數
             
         返回:
             total_loss: 總損失
@@ -383,7 +386,7 @@ class FedProxModel(BaseModel):
         for k, v in self.state_dict().items():
             proximal_loss += torch.sum((v - global_weights[k]) ** 2)
         
-        return cls_loss + (mu / 2) * proximal_loss
+        return cls_loss + (self.mu / 2) * proximal_loss
 
 
 
