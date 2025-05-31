@@ -154,4 +154,39 @@ def load_glove_embeddings(vocab, embedding_dim=300):
     print(f'在 GloVe {embedding_dim}d 中找到 {find} 個詞')
     return torch.stack(w, dim=0)
 
+def compute_accuracy(model, dataloader, device):
+    """計算模型在給定數據集上的準確率
+    
+    參數:
+        model: 要評估的模型
+        dataloader: 數據加載器
+        device: 計算設備（'cpu' 或 'cuda'）
+        
+    返回:
+        accuracy: 模型在數據集上的準確率
+    """
+    model.eval()  # 設置模型為評估模式
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():  # 不計算梯度
+        for x, y in dataloader:
+            # 將數據移到指定設備
+            x = x.to(device)
+            y = y.to(device)
+            
+            # 前向傳播
+            if isinstance(model, MOONModel):
+                outputs, _ = model(x)  # MOON 模型返回 (logits, projected)
+            else:
+                outputs = model(x)
+            
+            # 計算準確率
+            _, predicted = torch.max(outputs.data, 1)
+            total += y.size(0)
+            correct += (predicted == y).sum().item()
+    
+    accuracy = 100 * correct / total
+    return accuracy
+
     
