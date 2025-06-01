@@ -10,7 +10,7 @@ import torch.nn as nn
 import random
 from sklearn.metrics import confusion_matrix
 from NLP_datasets import MOONTextDataset
-from model import *
+from model import MOONModel, FedAvgModel, FedProxModel
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from collections import defaultdict
@@ -225,20 +225,6 @@ def init_nets(n_parties, args, device='cpu'):
         nets[net_i] = nets[net_i].to(device)
 
     return nets
-
-def update_global_model(global_model, global_w):
-    """
-    使用自訂的權重格式更新全域模型
-    
-    參數:
-        global_model: 全域模型
-        global_w: 自訂格式的權重字典
-    """
-    # 更新 encoder 權重
-    global_model.encoder.load_state_dict(global_w['encoder'])
-    # 更新 projection 權重（如果是 MOON 模型）
-    if hasattr(global_model, 'projection_head'):
-        global_model.projection_head.load_state_dict(global_w['projection'])
 
 def update_global_weights(nets_this_round, client_dataloaders, party_list_this_round):
     """

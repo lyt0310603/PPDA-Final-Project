@@ -51,7 +51,7 @@ def get_args():
     parser.add_argument('--sample_fraction', type=float, default=1.0, help='how many clients are sampled in each round')
     
     # 其他參數
-    parser.add_argument('--save_path', type=str, help='the path to save the results')
+    parser.add_argument('--save_path', type=str, default=None, help='the path to save the results')
 
     args = parser.parse_args()
     
@@ -137,17 +137,44 @@ def train_fedprox(net_id, net, global_model_w, client_dataloader, test_dataloade
     return train_acc, test_acc
 
 def train_moon(net_id, net, global_model_w, prev_models_w, client_dataloader, test_dataloader, n_epoch, args, round, device='cpu'):
+    """
+    執行 MOON 的本地訓練
+    
+    參數:
+        net_id: 客戶端 ID
+        net: 客戶端模型
+        global_model_w: 全域模型權重
+        prev_models_w: 歷史模型權重列表
+        client_dataloader: 客戶端數據加載器
+        test_dataloader: 測試數據加載器
+        n_epoch: 本地訓練輪數
+        args: 訓練參數
+        round: 當前通信輪數
+        device: 訓練設備
+    
+    返回:
+        train_acc: 訓練準確率
+        test_acc: 測試準確率
+    """
     net.to(device)
     opt = optim.Adam(net.parameters(), lr=args.lr)
 
     for epoch in range(n_epoch):
+        print(f"第 {epoch+1} 輪訓練")
         net.train()
         for batch_idx, (data, target) in enumerate(client_dataloader):
-            data, target = data.to(device), target.to(device)
-
+            data = data.to(device)
+            target = target.to(device)
+            
             opt.zero_grad()
+            
+            # 前向傳播
             results = net(data)
+            
+            # 計算損失
             loss = net.loss(results, target, data, global_model_w, prev_models_w)
+            
+            # 反向傳播
             loss.backward()
             opt.step()
 
@@ -216,10 +243,7 @@ def global_train_round(args, round, clients_nets, global_model, client_dataloade
     print(f"\n=== 開始第 {round+1} 輪全域訓練 ===")
     
     # 取得全域模型的權重
-    if args.alg == 'moon' or args.alg == 'fedprox':
-        global_w = global_model.get_weights()
-    else:
-        global_w = None
+    global_w = global_model.get_weights()
     
     # 選擇本輪參與訓練的客戶端列表
     party_list_this_round = party_list_rounds[round]
@@ -229,7 +253,7 @@ def global_train_round(args, round, clients_nets, global_model, client_dataloade
 
     # 將全域模型權重載入到每個客戶端模型
     for net in nets_this_round.values():
-        net.load_state_dict(global_w)
+        load_model_weights(net, global_w)
 
     # 進行本地訓練
     avg_acc, acc_dict = local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_w, prev_models_w, round, device)
@@ -238,7 +262,7 @@ def global_train_round(args, round, clients_nets, global_model, client_dataloade
     global_w = update_global_weights(nets_this_round, client_dataloaders, party_list_this_round)
 
     # 更新全域模型
-    update_global_model(global_model, global_w)
+    load_model_weights(global_model, global_w)
 
     # 計算全域模型的測試準確率
     global_test_acc = compute_accuracy(global_model, test_dataloader, device)
@@ -437,3 +461,17 @@ if __name__ == '__main__':
         comm_acc, comm_acc_dict, global_acc = global_train_fedprox(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
     else:
         raise ValueError(f"不支持的算法: {args.alg}")
+
+    # 保存訓練結果
+    if args.save_path is None:
+        args.save_path = f'results/{args.dataset}_{args.alg}_results.json'
+
+    results = {
+        'args': vars(args),
+        'comm_acc': comm_acc,
+        'comm_acc_dict': comm_acc_dict,
+        'global_acc': global_acc
+    }
+
+    with open(args.save_path, 'w') as f:
+        json.dump(results, f, indent=4)

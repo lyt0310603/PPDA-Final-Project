@@ -3,6 +3,43 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
+def load_model_weights(model, weights):
+    """
+    將自訂格式的權重加載到模型中
+    
+    參數:
+        model: 要加載權重的模型
+        weights: 自訂格式的權重字典，格式為：
+            {
+                'embedding': {...},
+                'encoder': {...},
+                'fc': {...},
+                'projection_head': {...} (可選)
+            }
+    """
+    # 創建一個新的 state_dict
+    new_state_dict = {}
+    
+    # 更新 embedding 權重
+    for k, v in weights['embedding'].items():
+        new_state_dict[f'embedding.{k}'] = v
+        
+    # 更新 encoder 權重
+    for k, v in weights['encoder'].items():
+        new_state_dict[f'encoder.{k}'] = v
+        
+    # 更新 fc 權重
+    for k, v in weights['fc'].items():
+        new_state_dict[f'fc.{k}'] = v
+        
+    # 更新 projection_head 權重（如果是 MOON 模型）
+    if 'projection_head' in weights:
+        for k, v in weights['projection_head'].items():
+            new_state_dict[f'projection_head.{k}'] = v
+            
+    # 使用新的 state_dict 更新模型
+    model.load_state_dict(new_state_dict)
+
 class LSTM(nn.Module):
     def __init__(self, args):
         """
@@ -175,6 +212,7 @@ class PositionalEncoding(nn.Module):
 class BaseModel(nn.Module):
     def __init__(self, args):
         super().__init__()
+        self.args = args
         self.model_name = args.model_name
         self.vocab_size = args.vocab_size
         self.embedding_dim = args.embedding_dim
@@ -229,7 +267,9 @@ class BaseModel(nn.Module):
     def get_weights(self):
         """獲取模型的所有權重"""
         return {
-            'encoder': {k: v.detach().clone() for k, v in self.encoder.state_dict().items()}
+            'embedding': {k: v.detach().clone() for k, v in self.embedding.state_dict().items()},
+            'encoder': {k: v.detach().clone() for k, v in self.encoder.state_dict().items()},
+            'fc': {k: v.detach().clone() for k, v in self.fc.state_dict().items()}
         }
         
     def init_weights(self):
@@ -255,62 +295,58 @@ class MOONModel(BaseModel):
         self.init_weights()
     
     def forward(self, x, mask=None):
-        embedded = self.dropout(self.embedding(x))
+        """
+        前向傳播
+        
+        參數:
+            x: 輸入數據
+            mask: 注意力掩碼（可選）
+        
+        返回:
+            (logits, projected): 分類輸出和投影輸出
+        """
+        # 計算嵌入
+        embedded = self.embedding(x)
+        embedded = self.dropout(embedded)
         
         # 如果沒有提供 mask，則生成 mask
         if mask is None and self.model_name == 'Transformer':
             mask = self.encoder.get_mask(x)
-            
+        
+        # 計算隱藏狀態
         hidden = self.encoder(embedded, mask)
+        
+        # 計算分類輸出和投影輸出
+        logits = self.fc(hidden)
         projected = self.projection_head(hidden)
-        return self.fc(hidden), projected
+        
+        return logits, projected
     
     def get_weights(self):
         """獲取模型的所有權重"""
         weights = super().get_weights()
-        weights['projection'] = {k: v.detach().clone() for k, v in self.projection_head.state_dict().items()}
+        weights['projection_head'] = {k: v.detach().clone() for k, v in self.projection_head.state_dict().items()}
         return weights
     
-    def get_projection_weights(self):
-        """獲取投影頭的權重"""
-        return {
-            'encoder': {k: v.detach().clone() for k, v in self.encoder.state_dict().items()},
-            'projection': {k: v.detach().clone() for k, v in self.projection_head.state_dict().items()}
-        }
-    
-    def _compute_projection(self, x, weights):
+    def compute_projection(self, x, weights):
         """使用給定的權重計算投影
         
         參數:
             x: 輸入數據
-            weights: 包含 encoder 和 projection 權重的字典
+            weights: 包含 encoder 和 projection_head 權重的字典
         """
         with torch.no_grad():
-            # 臨時保存當前權重
-            current_encoder = self.encoder.state_dict()
-            current_projection = self.projection_head.state_dict()
+            # 創建一個新的模型實例來計算投影
+            temp_model = MOONModel(self.args)
+            load_model_weights(temp_model, weights)
+            temp_model.to(x.device)
+            temp_model.eval()
             
-            # 載入給定的權重
-            self.encoder.load_state_dict(weights['encoder'])
-            self.projection_head.load_state_dict(weights['projection'])
+            
             
             # 計算投影
-            embedded = self.embedding(x)
-            if self.model_name == 'Transformer':
-                mask = self.encoder.get_mask(x)
-            else:
-                mask = None
-            hidden = self.encoder(embedded, mask)
-            projected = self.projection_head(hidden)
-            
-            # 正規化投影向量
-            projected = F.normalize(projected, dim=1)
-            
-            # 恢復原始權重
-            self.encoder.load_state_dict(current_encoder)
-            self.projection_head.load_state_dict(current_projection)
-            
-            return projected
+            _, projected = temp_model(x)
+            return F.normalize(projected, dim=1)
     
     def loss(self, outputs, labels, x, global_weight=None, prev_weights=None):
         """計算 MOON 損失
@@ -326,6 +362,7 @@ class MOONModel(BaseModel):
             total_loss: 總損失
         """
         logits, projected = outputs
+        # 正規化投影向量
         projected = F.normalize(projected, dim=1)
         cls_loss = F.cross_entropy(logits, labels)
         
@@ -333,26 +370,26 @@ class MOONModel(BaseModel):
             return cls_loss
             
         # 計算對比損失
-        global_projected = self._compute_projection(x, global_weight)
+        global_projected = self.compute_projection(x, global_weight)
         
         # 計算與全局模型的相似度作為正樣本
         pos_sim = self.cos(projected, global_projected)
-        logits = pos_sim.reshape(-1, 1)
+        logits_contrast = pos_sim.unsqueeze(1)  # [batch_size, 1]
         
         # 計算與所有歷史模型的相似度作為負樣本
         for prev_weight in prev_weights:
-            prev_projected = self._compute_projection(x, prev_weight)
+            prev_projected = self.compute_projection(x, prev_weight)
             neg_sim = self.cos(projected, prev_projected)
-            logits = torch.cat((logits, neg_sim.reshape(-1, 1)), dim=1)
+            logits_contrast = torch.cat([logits_contrast, neg_sim.unsqueeze(1)], dim=1)  # [batch_size, n_models]
         
         # 應用溫度縮放
-        logits /= self.temperature
+        logits_contrast = logits_contrast / self.temperature
         
         # 創建標籤（第一個位置為正樣本）
         contrast_labels = torch.zeros(x.size(0), device=x.device, dtype=torch.long)
         
         # 計算對比損失
-        contrast_loss = F.cross_entropy(logits, contrast_labels)
+        contrast_loss = F.cross_entropy(logits_contrast, contrast_labels)
         
         return cls_loss + self.mu * contrast_loss
 
@@ -366,10 +403,6 @@ class FedProxModel(BaseModel):
         super().__init__(args)
         self.mu = args.mu
         self.init_weights()
-        
-    def get_weights(self):
-        """獲取模型的所有權重"""
-        return {k: v.detach().clone() for k, v in self.state_dict().items()}
     
     def loss(self, outputs, labels, global_weights=None):
         """計算 FedProx 損失，包括分類損失和正則化項
@@ -387,10 +420,14 @@ class FedProxModel(BaseModel):
         if global_weights is None:
             return cls_loss
             
+        # 獲取當前模型的權重
+        current_weights = self.get_weights()
+        
         # 計算正則化項
         proximal_loss = 0.0
-        for k, v in self.state_dict().items():
-            proximal_loss += torch.sum((v - global_weights[k]) ** 2)
+        for k in current_weights:
+            for param_name, param in current_weights[k].items():
+                proximal_loss += torch.sum((param - global_weights[k][param_name]) ** 2)
         
         return cls_loss + (self.mu / 2) * proximal_loss
 
