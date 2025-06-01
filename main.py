@@ -104,7 +104,7 @@ def init_nets(n_parties, args, device='cpu'):
 
 def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, global_model_w=None, prev_model_pool=None, round=None, device='cpu'):
     avg_acc = 0.0
-    acc_list = []
+    acc_dict = {}
     n_epoch = args.epochs
 
     print(f"\n=== 開始第 {round+1} 輪本地訓練 ===")
@@ -127,13 +127,13 @@ def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, 
             print(f"客戶端 {net_id} 訓練完成:")
             print(f"- 訓練準確率: {trainacc:.4f}")
             print(f"- 測試準確率: {testacc:.4f}")
-            acc_list.append(testacc)
+            acc_dict[net_id] = testacc  # 使用客戶端 ID 作為鍵
             avg_acc += testacc
 
     avg_acc /= len(this_round_nets)
     print(f"\n=== 第 {round+1} 輪本地訓練完成 ===")
     print(f"平均測試準確率: {avg_acc:.4f}")
-    return avg_acc, acc_list
+    return avg_acc, acc_dict
 
 def train_fedprox():
     pass
@@ -220,6 +220,9 @@ def global_train_moon(args, clients_nets, global_model, client_dataloaders, test
     返回:
         None
     """
+    comm_acc = []
+    comm_acc_dict = {}
+
     # 初始化模型緩存
     old_nets_pool = []
     for _ in range(args.model_buffer_size):
@@ -250,7 +253,9 @@ def global_train_moon(args, clients_nets, global_model, client_dataloaders, test
             net.load_state_dict(global_w)
 
         # 進行本地訓練
-        avg_acc, acc_list = local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_w, old_nets_pool, round, device)
+        avg_acc, acc_dict = local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_w, old_nets_pool, round, device)
+        comm_acc.append(avg_acc)
+        comm_acc_dict[round] = acc_dict
 
         # 更新全域模型權重
         global_w = update_global_weights(nets_this_round, client_dataloaders, party_list_this_round)
@@ -267,6 +272,8 @@ def global_train_moon(args, clients_nets, global_model, client_dataloaders, test
 
     # 更新全域模型
     update_global_model(global_model, global_w)
+
+    return comm_acc, comm_acc_dict
 
 def global_train_fedavg(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device='cpu'):
     pass
@@ -331,8 +338,8 @@ if __name__ == '__main__':
 
     # 訓練過程
     if args.alg == 'moon':
-        global_train_moon(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
+        comm_acc, comm_acc_dict = global_train_moon(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
     elif args.alg == 'fedavg':
-        global_train_fedavg(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
+        comm_acc, comm_acc_dict = global_train_fedavg(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
     elif args.alg == 'fedprox':
-        global_train_fedprox(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
+        comm_acc, comm_acc_dict = global_train_fedprox(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
