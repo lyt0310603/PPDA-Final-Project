@@ -107,7 +107,9 @@ def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, 
     acc_list = []
     n_epoch = args.epochs
 
+    print(f"\n=== 開始第 {round+1} 輪本地訓練 ===")
     for net_id, net in this_round_nets.items():
+        print(f"\n--- 訓練客戶端 {net_id} ---")
         client_dataloader = client_dataloaders[net_id]
 
         if args.alg == 'fedavg':
@@ -122,6 +124,16 @@ def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, 
 
             # 進行 MOON 學習訓練
             trainacc, testacc = train_moon(net_id, net, global_model_w, prev_models_w, client_dataloader, test_dataloader, n_epoch, args, round, device=device)
+            print(f"客戶端 {net_id} 訓練完成:")
+            print(f"- 訓練準確率: {trainacc:.4f}")
+            print(f"- 測試準確率: {testacc:.4f}")
+            acc_list.append(testacc)
+            avg_acc += testacc
+
+    avg_acc /= len(this_round_nets)
+    print(f"\n=== 第 {round+1} 輪本地訓練完成 ===")
+    print(f"平均測試準確率: {avg_acc:.4f}")
+    return avg_acc, acc_list
 
 def train_fedprox():
     pass
@@ -150,8 +162,117 @@ def train_moon(net_id, net, global_model_w, prev_models_w, client_dataloader, te
 def train_fedavg():
     pass
 
+def update_global_model(global_model, global_w):
+    """
+    使用自訂的權重格式更新全域模型
+    
+    參數:
+        global_model: 全域模型
+        global_w: 自訂格式的權重字典
+    """
+    # 更新 encoder 權重
+    global_model.encoder.load_state_dict(global_w['encoder'])
+    # 更新 projection 權重（如果是 MOON 模型）
+    if hasattr(global_model, 'projection_head'):
+        global_model.projection_head.load_state_dict(global_w['projection'])
 
+def update_global_weights(nets_this_round, client_dataloaders, party_list_this_round):
+    """
+    使用聯邦平均更新全域模型權重
+    
+    參數:
+        nets_this_round: 本輪參與訓練的客戶端模型字典
+        client_dataloaders: 所有客戶端的數據加載器字典
+        party_list_this_round: 本輪參與訓練的客戶端列表
+    
+    返回:
+        global_w: 更新後的全域模型權重
+    """
+    # 計算總訓練數據點
+    total_data_points = sum([len(client_dataloaders[r]) for r in party_list_this_round])
 
+    # 計算每個客戶端模型的訓練數據點佔總數的比例
+    fed_avg_freqs = [len(client_dataloaders[r]) / total_data_points for r in party_list_this_round]
+
+    # 更新全域模型權重
+    for net_id, net in enumerate(nets_this_round.values()):
+        net_para = net.get_weights()
+        if net_id == 0:
+            global_w = {key: net_para[key] * fed_avg_freqs[net_id] for key in net_para}
+        else:
+            for key in net_para:
+                global_w[key] += net_para[key] * fed_avg_freqs[net_id]
+    return global_w
+
+def global_train_moon(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device='cpu'):
+    """
+    執行 MOON 算法的全域訓練
+    
+    參數:
+        args: 訓練參數
+        clients_nets: 客戶端模型字典
+        global_model: 全域模型
+        client_dataloaders: 客戶端數據加載器字典
+        test_dataloader: 測試數據加載器
+        party_list_rounds: 每輪參與訓練的客戶端列表
+        device: 訓練設備
+    
+    返回:
+        None
+    """
+    # 初始化模型緩存
+    old_nets_pool = []
+    for _ in range(args.model_buffer_size):
+        round_weights = {}
+        for client_id in range(args.n_parties):
+            round_weights[client_id] = clients_nets[client_id].get_weights()
+        old_nets_pool.append(round_weights)
+    
+    # 將全域模型設定為評估模式
+    global_model.eval()
+
+    # 凍結全域模型參數,不進行梯度更新
+    for param in global_model.parameters():
+        param.requires_grad = False
+
+    # 取得全域模型的權重
+    global_w = global_model.get_weights()
+    
+    for round in range(args.comm_round):
+        # 選擇本輪參與訓練的客戶端列表
+        party_list_this_round = party_list_rounds[round]
+
+        # 選擇本輪參與訓練的客戶端模型
+        nets_this_round = {k: clients_nets[k] for k in party_list_this_round}
+
+        # 將全域模型權重載入到每個客戶端模型
+        for net in nets_this_round.values():
+            net.load_state_dict(global_w)
+
+        # 進行本地訓練
+        avg_acc, acc_list = local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_w, old_nets_pool, round, device)
+
+        # 更新全域模型權重
+        global_w = update_global_weights(nets_this_round, client_dataloaders, party_list_this_round)
+
+        # 更新模型緩存
+        round_weights = {}
+        for client_id in range(args.n_parties):
+            round_weights[client_id] = clients_nets[client_id].get_weights()
+        
+        # 如果緩存已滿，移除最舊的權重
+        if len(old_nets_pool) >= args.model_buffer_size:
+            old_nets_pool.pop(0)
+        old_nets_pool.append(round_weights)
+
+    # 更新全域模型
+    update_global_model(global_model, global_w)
+
+def global_train_fedavg(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device='cpu'):
+    pass
+
+def global_train_fedprox(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device='cpu'):
+    pass
 
 if __name__ == '__main__':
     args = get_args()
@@ -208,41 +329,10 @@ if __name__ == '__main__':
         for i in range(args.comm_round):
             party_list_rounds.append(party_list)
 
+    # 訓練過程
     if args.alg == 'moon':
-        # 初始化模型緩存
-        old_nets_pool = []
-        for _ in range(args.model_buffer_size):
-            round_weights = {}
-            for client_id in range(args.n_parties):
-                round_weights[client_id] = clients_nets[client_id].get_weights()
-            old_nets_pool.append(round_weights)
-        
-        for round in range(args.comm_round):
-            # 選擇本輪參與訓練的客戶端列表
-            party_list_this_round = party_list_rounds[round]
-
-            # 將全域模型設定為評估模式
-            global_model.eval()
-
-            # 凍結全域模型參數,不進行梯度更新
-            for param in global_model.parameters():
-                param.requires_grad = False
-
-            # 取得全域模型的權重
-            global_w = global_model.get_weights()
-
-            # 選擇本輪參與訓練的客戶端模型
-            nets_this_round = {k: clients_nets[k] for k in party_list_this_round}
-
-            # 將全域模型權重載入到每個客戶端模型
-            for net in nets_this_round.values():
-                net.load_state_dict(global_w)
-
-            # 進行本地訓練
-            local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_w, old_nets_pool, round, device)
-
-
-
-    
-    
-    
+        global_train_moon(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
+    elif args.alg == 'fedavg':
+        global_train_fedavg(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
+    elif args.alg == 'fedprox':
+        global_train_fedprox(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
