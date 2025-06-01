@@ -249,10 +249,20 @@ def weights_aggregation(nets_this_round, client_dataloaders, party_list_this_rou
     for net_id, net in enumerate(nets_this_round.values()):
         net_para = net.get_weights()
         if net_id == 0:
-            global_w = {key: net_para[key] * fed_avg_freqs[net_id] for key in net_para}
+            global_w = {}
+            for module_name, module_weights in net_para.items():
+                global_w[module_name] = {}
+                for key, value in module_weights.items():
+                    global_w[module_name][key] = value * fed_avg_freqs[net_id]
         else:
-            for key in net_para:
-                global_w[key] += net_para[key] * fed_avg_freqs[net_id]
+            for module_name, module_weights in net_para.items():
+                if module_name not in global_w:
+                    global_w[module_name] = {}
+                for key, value in module_weights.items():
+                    if key not in global_w[module_name]:
+                        global_w[module_name][key] = value * fed_avg_freqs[net_id]
+                    else:
+                        global_w[module_name][key] += value * fed_avg_freqs[net_id]
     return global_w
 
     
