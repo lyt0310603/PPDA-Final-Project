@@ -132,6 +132,7 @@ class DBPediaDataset(TextDataset):
 class SST2Dataset(TextDataset):
     def __init__(self, split='train'):
         super().__init__()
+        split = 'validation' if split == 'test' else split
         dataset = load_dataset('glue', 'sst2', split=split)
         self.data = dataset['sentence']
         self.labels = np.array(dataset['label'], dtype=np.int64)
@@ -189,7 +190,7 @@ class MOONTextDataset(TextDataset):
         elif dataset_name == 'dbpedia_14':
             dataset = DBPediaDataset(split)
         elif dataset_name == 'sst2':
-            dataset = SST2Dataset(split)
+            dataset = SST2Dataset(split)  # SST2Dataset 會自動處理 test -> validation 的映射
         elif dataset_name == '20newsgroups':
             dataset = Newsgroups20Dataset(split)
         elif dataset_name == 'trec':

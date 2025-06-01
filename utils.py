@@ -170,7 +170,7 @@ def compute_accuracy(model, dataloader, device):
     total = 0
     
     with torch.no_grad():  # 不計算梯度
-        for x, y in dataloader:
+        for batch_idx, (x, y) in enumerate(dataloader):
             # 將數據移到指定設備
             x = x.to(device)
             y = y.to(device)
@@ -187,6 +187,7 @@ def compute_accuracy(model, dataloader, device):
             correct += (predicted == y).sum().item()
     
     accuracy = 100 * correct / total
+    
     return accuracy
 
 def init_nets(n_parties, args, device='cpu'):
@@ -226,7 +227,7 @@ def init_nets(n_parties, args, device='cpu'):
 
     return nets
 
-def update_global_weights(nets_this_round, client_dataloaders, party_list_this_round):
+def weights_aggregation(nets_this_round, client_dataloaders, party_list_this_round):
     """
     使用聯邦平均更新全域模型權重
     

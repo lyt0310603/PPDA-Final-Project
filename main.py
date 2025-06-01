@@ -127,7 +127,7 @@ def train_fedprox(net_id, net, global_model_w, client_dataloader, test_dataloade
 
             opt.zero_grad()
             outputs = net(data)
-            loss = net.loss(outputs, target, global_model_w)  # 使用模型自帶的 loss 函數
+            loss = net.loss(outputs, target, global_model_w)
             loss.backward()
             opt.step()
 
@@ -259,7 +259,7 @@ def global_train_round(args, round, clients_nets, global_model, client_dataloade
     avg_acc, acc_dict = local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_w, prev_models_w, round, device)
 
     # 更新全域模型權重
-    global_w = update_global_weights(nets_this_round, client_dataloaders, party_list_this_round)
+    global_w = weights_aggregation(nets_this_round, client_dataloaders, party_list_this_round)
 
     # 更新全域模型
     load_model_weights(global_model, global_w)
