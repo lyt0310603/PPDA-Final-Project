@@ -466,10 +466,15 @@ if __name__ == '__main__':
     if args.save_path is None:
         args.save_path = f'results/{args.dataset}_{args.alg}_results.json'
 
+    # 創建 args 的副本並移除 pretrained_embeddings
+    args_dict = vars(args).copy()
+    if 'pretrained_embeddings' in args_dict:
+        del args_dict['pretrained_embeddings']
+
     results = {
-        'args': vars(args),
-        'comm_acc': comm_acc,
-        'comm_acc_dict': comm_acc_dict,
+        'args': args_dict,
+        'comm_acc_avg': comm_acc,
+        'comm_acc_client': comm_acc_dict,
         'global_acc': global_acc
     }
 
