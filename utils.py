@@ -189,4 +189,83 @@ def compute_accuracy(model, dataloader, device):
     accuracy = 100 * correct / total
     return accuracy
 
+def init_nets(n_parties, args, device='cpu'):
+    # 設定分類數量
+    if args.dataset == 'imdb':
+        n_classes = 2
+    elif args.dataset == 'ag_news':
+        n_classes = 4
+    elif args.dataset == 'dbpedia_14':
+        n_classes = 14
+    elif args.dataset == 'sst2':
+        n_classes = 2
+    elif args.dataset == '20newsgroups':
+        n_classes = 20
+    elif args.dataset == 'trec':
+        n_classes = 6
+    elif args.dataset == 'yelp_review':
+        n_classes = 5
+    else:
+        raise ValueError(f"不支持的數據集: {args.dataset}")
+    
+    args.n_classes = n_classes
+    
+    # 初始化網絡
+    nets = {net_i: None for net_i in range(n_parties)}
+
+    for net_i in range(n_parties):
+        if args.alg == 'moon':
+            nets[net_i] = MOONModel(args=args)
+        elif args.alg == 'fedavg':
+            nets[net_i] = FedAvgModel(args=args)
+        elif args.alg == 'fedprox':
+            nets[net_i] = FedProxModel(args=args)
+            
+        # 將模型移動到指定設備
+        nets[net_i] = nets[net_i].to(device)
+
+    return nets
+
+def update_global_model(global_model, global_w):
+    """
+    使用自訂的權重格式更新全域模型
+    
+    參數:
+        global_model: 全域模型
+        global_w: 自訂格式的權重字典
+    """
+    # 更新 encoder 權重
+    global_model.encoder.load_state_dict(global_w['encoder'])
+    # 更新 projection 權重（如果是 MOON 模型）
+    if hasattr(global_model, 'projection_head'):
+        global_model.projection_head.load_state_dict(global_w['projection'])
+
+def update_global_weights(nets_this_round, client_dataloaders, party_list_this_round):
+    """
+    使用聯邦平均更新全域模型權重
+    
+    參數:
+        nets_this_round: 本輪參與訓練的客戶端模型字典
+        client_dataloaders: 所有客戶端的數據加載器字典
+        party_list_this_round: 本輪參與訓練的客戶端列表
+    
+    返回:
+        global_w: 更新後的全域模型權重
+    """
+    # 計算總訓練數據點
+    total_data_points = sum([len(client_dataloaders[r]) for r in party_list_this_round])
+
+    # 計算每個客戶端模型的訓練數據點佔總數的比例
+    fed_avg_freqs = [len(client_dataloaders[r]) / total_data_points for r in party_list_this_round]
+
+    # 更新全域模型權重
+    for net_id, net in enumerate(nets_this_round.values()):
+        net_para = net.get_weights()
+        if net_id == 0:
+            global_w = {key: net_para[key] * fed_avg_freqs[net_id] for key in net_para}
+        else:
+            for key in net_para:
+                global_w[key] += net_para[key] * fed_avg_freqs[net_id]
+    return global_w
+
     
