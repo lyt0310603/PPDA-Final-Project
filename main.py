@@ -115,13 +115,9 @@ def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, 
         if args.alg == 'fedavg':
             # 進行 FedAvg 學習訓練
             trainacc, testacc = train_fedavg(net_id, net, client_dataloader, test_dataloader, n_epoch, args, round, device=device)
-            print(f"客戶端 {net_id} 訓練完成:")
-            print(f"- 訓練準確率: {trainacc:.4f}")
-            print(f"- 測試準確率: {testacc:.4f}")
-            acc_dict[net_id] = testacc
-            avg_acc += testacc
         elif args.alg == 'fedprox':
-            pass
+            # 進行 FedProx 學習訓練
+            trainacc, testacc = train_fedprox(net_id, net, global_model_w, client_dataloader, test_dataloader, n_epoch, args, round, device=device)
         elif args.alg == 'moon':
             # 取出對應客戶端的歷史模型權重
             prev_models_w = []
@@ -130,19 +126,56 @@ def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, 
 
             # 進行 MOON 學習訓練
             trainacc, testacc = train_moon(net_id, net, global_model_w, prev_models_w, client_dataloader, test_dataloader, n_epoch, args, round, device=device)
-            print(f"客戶端 {net_id} 訓練完成:")
-            print(f"- 訓練準確率: {trainacc:.4f}")
-            print(f"- 測試準確率: {testacc:.4f}")
-            acc_dict[net_id] = testacc
-            avg_acc += testacc
+
+        # 統一處理訓練結果輸出
+        print(f"客戶端 {net_id} 訓練完成:")
+        print(f"- 訓練準確率: {trainacc:.4f}")
+        print(f"- 測試準確率: {testacc:.4f}")
+        acc_dict[net_id] = testacc
+        avg_acc += testacc
 
     avg_acc /= len(this_round_nets)
     print(f"\n=== 第 {round+1} 輪本地訓練完成 ===")
     print(f"平均測試準確率: {avg_acc:.4f}")
     return avg_acc, acc_dict
 
-def train_fedprox():
-    pass
+def train_fedprox(net_id, net, global_model_w, client_dataloader, test_dataloader, n_epoch, args, round, device='cpu'):
+    """
+    執行 FedProx 的本地訓練
+    
+    參數:
+        net_id: 客戶端 ID
+        net: 客戶端模型
+        global_model_w: 全域模型權重
+        client_dataloader: 客戶端數據加載器
+        test_dataloader: 測試數據加載器
+        n_epoch: 本地訓練輪數
+        args: 訓練參數
+        round: 當前通信輪數
+        device: 訓練設備
+    
+    返回:
+        train_acc: 訓練準確率
+        test_acc: 測試準確率
+    """
+    net.to(device)
+    opt = optim.Adam(net.parameters(), lr=args.lr)
+
+    for epoch in range(n_epoch):
+        net.train()
+        for batch_idx, (data, target) in enumerate(client_dataloader):
+            data, target = data.to(device), target.to(device)
+
+            opt.zero_grad()
+            outputs = net(data)
+            loss = net.loss(outputs, target, global_model_w)  # 使用模型自帶的 loss 函數
+            loss.backward()
+            opt.step()
+
+    train_acc = compute_accuracy(net, client_dataloader, device)
+    test_acc = compute_accuracy(net, test_dataloader, device)
+
+    return train_acc, test_acc
 
 def train_moon(net_id, net, global_model_w, prev_models_w, client_dataloader, test_dataloader, n_epoch, args, round, device='cpu'):
     net.to(device)
@@ -369,7 +402,58 @@ def global_train_fedavg(args, clients_nets, global_model, client_dataloaders, te
     return comm_acc, comm_acc_dict
 
 def global_train_fedprox(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device='cpu'):
-    pass
+    """
+    執行 FedProx 算法的全域訓練
+    
+    參數:
+        args: 訓練參數
+        clients_nets: 客戶端模型字典
+        global_model: 全域模型
+        client_dataloaders: 客戶端數據加載器字典
+        test_dataloader: 測試數據加載器
+        party_list_rounds: 每輪參與訓練的客戶端列表
+        device: 訓練設備
+    
+    返回:
+        comm_acc: 每輪的平均準確率列表
+        comm_acc_dict: 每輪每個客戶端的準確率字典
+    """
+    comm_acc = []
+    comm_acc_dict = {}
+
+    # 將全域模型設定為評估模式
+    global_model.eval()
+
+    # 凍結全域模型參數,不進行梯度更新
+    for param in global_model.parameters():
+        param.requires_grad = False
+
+    # 取得全域模型的權重
+    global_w = global_model.get_weights()
+    
+    for round in range(args.comm_round):
+        # 選擇本輪參與訓練的客戶端列表
+        party_list_this_round = party_list_rounds[round]
+
+        # 選擇本輪參與訓練的客戶端模型
+        nets_this_round = {k: clients_nets[k] for k in party_list_this_round}
+
+        # 將全域模型權重載入到每個客戶端模型
+        for net in nets_this_round.values():
+            net.load_state_dict(global_w)
+
+        # 進行本地訓練
+        avg_acc, acc_dict = local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_w, None, round, device)
+        comm_acc.append(avg_acc)
+        comm_acc_dict[round] = acc_dict
+
+        # 更新全域模型權重
+        global_w = update_global_weights(nets_this_round, client_dataloaders, party_list_this_round)
+
+    # 更新全域模型
+    update_global_model(global_model, global_w)
+
+    return comm_acc, comm_acc_dict
 
 if __name__ == '__main__':
     args = get_args()
