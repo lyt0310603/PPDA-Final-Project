@@ -5,6 +5,7 @@ import torch.optim as optim
 import torch.nn as nn
 import argparse
 import random
+import time
 
 from model import *
 from utils import *
@@ -65,9 +66,12 @@ def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, 
     avg_acc = 0.0
     acc_dict = {}
     n_epoch = args.epochs
+    client_times = []
+    total_start_time = time.time()
 
-    print(f"\n=== 開始第 {round+1} 輪本地訓練 ===")
+    print(f'\n第 {round+1} 輪全域訓練開始')
     for net_id, net in this_round_nets.items():
+        client_start_time = time.time()
         print(f"\n--- 訓練客戶端 {net_id} ---")
         client_dataloader = client_dataloaders[net_id]
 
@@ -86,17 +90,22 @@ def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, 
             # 進行 MOON 學習訓練
             trainacc, testacc = train_moon(net_id, net, global_model, prev_models_client, client_dataloader, test_dataloader, n_epoch, args, round, device=device)
 
+        client_time = time.time() - client_start_time
+        client_times.append(client_time)
         # 統一處理訓練結果輸出
-        print(f"客戶端 {net_id} 訓練完成:")
+        print(f"\n客戶端 {net_id} 訓練完成:")
         print(f"- 訓練準確率: {trainacc:.4f}")
         print(f"- 測試準確率: {testacc:.4f}")
+        print(f"- 訓練時間: {client_time:.2f} 秒")
         acc_dict[net_id] = testacc
         avg_acc += testacc
 
+    total_time = time.time() - total_start_time
     avg_acc /= len(this_round_nets)
-    print(f"\n=== 第 {round+1} 輪本地訓練完成 ===")
+    print(f'第 {round+1} 輪全域訓練完成')
     print(f"平均測試準確率: {avg_acc:.4f}")
-    return avg_acc, acc_dict
+    print(f"總訓練時間: {total_time:.2f} 秒")
+    return avg_acc, acc_dict, client_times
 
 def train_fedprox(net_id, net, global_model, client_dataloader, test_dataloader, n_epoch, args, round, device='cpu'):
     """
@@ -261,9 +270,7 @@ def global_train_round(args, round, clients_nets, global_model, client_dataloade
         avg_acc: 平均準確率
         acc_dict: 每個客戶端的準確率字典
         global_test_acc: 全域模型的測試準確率
-    """
-    print(f"\n=== 開始第 {round+1} 輪全域訓練 ===")
-    
+    """    
     # 取得全域模型的權重
     global_state = global_model.state_dict()
     
@@ -278,7 +285,7 @@ def global_train_round(args, round, clients_nets, global_model, client_dataloade
         net.load_state_dict(global_state)
 
     # 進行本地訓練
-    avg_acc, acc_dict = local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_model, prev_models, round, device)
+    avg_acc, acc_dict, client_times = local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_model, prev_models, round, device)
 
     # 更新全域模型權重
     global_state = weights_aggregation(nets_this_round, client_dataloaders)
@@ -290,7 +297,7 @@ def global_train_round(args, round, clients_nets, global_model, client_dataloade
     global_test_acc = compute_accuracy(global_model, test_dataloader, device)
     print(f"第 {round+1} 輪全域模型測試準確率: {global_test_acc:.4f}")
 
-    return avg_acc, acc_dict, global_test_acc
+    return avg_acc, acc_dict, global_test_acc, client_times
 
 def global_train_moon(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device='cpu'):
     """
@@ -313,6 +320,7 @@ def global_train_moon(args, clients_nets, global_model, client_dataloaders, test
     comm_acc = []
     comm_acc_dict = {}
     global_acc = []
+    comm_times = {}
 
     # 初始化模型緩存
     old_nets_pool = []
@@ -328,7 +336,7 @@ def global_train_moon(args, clients_nets, global_model, client_dataloaders, test
     
     for round in range(args.comm_round):
         # 執行一輪訓練
-        avg_acc, acc_dict, global_test_acc = global_train_round(
+        avg_acc, acc_dict, global_test_acc, client_times = global_train_round(
             args, round, clients_nets, global_model, client_dataloaders, 
             test_dataloader, party_list_rounds, old_nets_pool, device
         )
@@ -336,6 +344,7 @@ def global_train_moon(args, clients_nets, global_model, client_dataloaders, test
         comm_acc.append(avg_acc)
         comm_acc_dict[round] = acc_dict
         global_acc.append(global_test_acc)
+        comm_times[round] = client_times
 
         # 更新模型緩存
         round_models = {}
@@ -351,7 +360,7 @@ def global_train_moon(args, clients_nets, global_model, client_dataloaders, test
             old_nets_pool.pop(0)
         old_nets_pool.append(round_models)
 
-    return comm_acc, comm_acc_dict, global_acc
+    return comm_acc, comm_acc_dict, global_acc, comm_times
 
 def global_train_fedavg(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device='cpu'):
     """
@@ -374,10 +383,10 @@ def global_train_fedavg(args, clients_nets, global_model, client_dataloaders, te
     comm_acc = []
     comm_acc_dict = {}
     global_acc = []
-    
+    comm_times = {}
     for round in range(args.comm_round):
         # 執行一輪訓練
-        avg_acc, acc_dict, global_test_acc = global_train_round(
+        avg_acc, acc_dict, global_test_acc, client_times = global_train_round(
             args, round, clients_nets, global_model, client_dataloaders, 
             test_dataloader, party_list_rounds, None, device
         )
@@ -385,8 +394,8 @@ def global_train_fedavg(args, clients_nets, global_model, client_dataloaders, te
         comm_acc.append(avg_acc)
         comm_acc_dict[round] = acc_dict
         global_acc.append(global_test_acc)
-
-    return comm_acc, comm_acc_dict, global_acc
+        comm_times[round] = client_times
+    return comm_acc, comm_acc_dict, global_acc, comm_times
 
 def global_train_fedprox(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device='cpu'):
     """
@@ -409,10 +418,10 @@ def global_train_fedprox(args, clients_nets, global_model, client_dataloaders, t
     comm_acc = []
     comm_acc_dict = {}
     global_acc = []
-    
+    comm_times = {}
     for round in range(args.comm_round):
         # 執行一輪訓練
-        avg_acc, acc_dict, global_test_acc = global_train_round(
+        avg_acc, acc_dict, global_test_acc, client_times = global_train_round(
             args, round, clients_nets, global_model, client_dataloaders, 
             test_dataloader, party_list_rounds, None, device
         )
@@ -420,8 +429,8 @@ def global_train_fedprox(args, clients_nets, global_model, client_dataloaders, t
         comm_acc.append(avg_acc)
         comm_acc_dict[round] = acc_dict
         global_acc.append(global_test_acc)
-
-    return comm_acc, comm_acc_dict, global_acc
+        comm_times[round] = client_times
+    return comm_acc, comm_acc_dict, global_acc, comm_times
 
 if __name__ == '__main__':
     args = get_args()
@@ -480,13 +489,13 @@ if __name__ == '__main__':
             party_list_rounds.append(party_list)
 
     # 訓練過程
-    comm_acc, comm_acc_dict, global_acc = [], {}, []
+    comm_acc, comm_acc_dict, global_acc, comm_times = [], {}, [], {}
     if args.alg == 'moon':
-        comm_acc, comm_acc_dict, global_acc = global_train_moon(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
+        comm_acc, comm_acc_dict, global_acc, comm_times = global_train_moon(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
     elif args.alg == 'fedavg':
-        comm_acc, comm_acc_dict, global_acc = global_train_fedavg(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
+        comm_acc, comm_acc_dict, global_acc, comm_times = global_train_fedavg(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
     elif args.alg == 'fedprox':
-        comm_acc, comm_acc_dict, global_acc = global_train_fedprox(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
+        comm_acc, comm_acc_dict, global_acc, comm_times = global_train_fedprox(args, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, device)
     else:
         raise ValueError(f"不支持的算法: {args.alg}")
 
@@ -494,11 +503,15 @@ if __name__ == '__main__':
     if args.save_path is None:
         args.save_path = f'results/{args.dataset}_{args.alg}_results.json'
 
+    # 將 args 轉換為字典
+    args_dict = vars(args)
+
     results = {
-        'args': args,
-        'comm_acc_avg': comm_acc,
-        'comm_acc_client': comm_acc_dict,
-        'global_acc': global_acc
+        'args': args_dict,   # 訓練參數
+        'comm_acc_avg': comm_acc,  # 每輪的客戶端平均準確率
+        'comm_acc_client': comm_acc_dict,  # 每輪每個客戶端的準確率字典
+        'global_acc': global_acc,  # 每輪全域模型的測試準確率
+        'comm_times': comm_times  # 每輪的訓練時間
     }
 
     with open(args.save_path, 'w') as f:
