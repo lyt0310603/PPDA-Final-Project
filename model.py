@@ -210,7 +210,7 @@ class PositionalEncoding(nn.Module):
         return x + self.pe[:x.size(1)].unsqueeze(0)
 
 class BaseModel(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, pretrained_embeddings=None):
         super().__init__()
         self.args = args
         self.model_name = args.model_name
@@ -220,13 +220,13 @@ class BaseModel(nn.Module):
         self.output_dim = args.n_classes
         self.n_layers = args.n_layers
         self.dropout_rate = args.dropout
-        self.pretrained_embeddings = args.pretrained_embeddings
         self.freeze_embeddings = args.freeze_embeddings
 
         # 初始化詞嵌入層
-        self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim)
-        if args.pretrained_embeddings is not None:
-            self.embedding = nn.Embedding.from_pretrained(args.pretrained_embeddings, freeze=args.freeze_embeddings)
+        if pretrained_embeddings is not None:
+            self.embedding = nn.Embedding.from_pretrained(pretrained_embeddings, freeze=args.freeze_embeddings)
+        else:
+            self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim)
         
         self.dropout = nn.Dropout(self.dropout_rate)
 
@@ -268,7 +268,7 @@ class BaseModel(nn.Module):
         """初始化模型權重，除了預訓練的 embedding"""
         for name, param in self.named_parameters():
             # 跳過預訓練的 embedding
-            if name == 'embedding.weight' and self.pretrained_embeddings is not None:
+            if name == 'embedding.weight' and self.args.use_pretrained_embeddings:
                 continue
             # 只對權重矩陣使用 Xavier 初始化
             if 'weight' in name and len(param.shape) >= 2:
@@ -278,8 +278,8 @@ class BaseModel(nn.Module):
                 nn.init.zeros_(param)
 
 class MOONModel(BaseModel):
-    def __init__(self, args):
-        super().__init__(args)
+    def __init__(self, args, pretrained_embeddings=None):
+        super().__init__(args, pretrained_embeddings)
         self.projection_head = nn.Linear(self.encoder_output_dim, args.projection_dim)
         self.temperature = args.temperature
         self.mu = args.mu
@@ -366,13 +366,13 @@ class MOONModel(BaseModel):
         return cls_loss + self.mu * contrast_loss
 
 class FedAvgModel(BaseModel):
-    def __init__(self, args):
-        super().__init__(args)
+    def __init__(self, args, pretrained_embeddings=None):
+        super().__init__(args, pretrained_embeddings)
         self.init_weights()
 
 class FedProxModel(BaseModel):
-    def __init__(self, args):
-        super().__init__(args)
+    def __init__(self, args, pretrained_embeddings=None):
+        super().__init__(args, pretrained_embeddings)
         self.mu = args.mu
         self.init_weights()
     

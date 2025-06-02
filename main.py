@@ -454,20 +454,18 @@ if __name__ == '__main__':
     device = torch.device(args.device)
     
     # 獲取預訓練詞嵌入
+    pretrained_embeddings = None
     if args.use_pretrained_embeddings:
         pretrained_embeddings = load_glove_embeddings(
             vocab=train_dataset.vocab,
             embedding_dim=args.embedding_dim
         )
-        args.pretrained_embeddings = pretrained_embeddings
-    else:
-        args.pretrained_embeddings = None
     
     # 初始化客戶端網絡
-    clients_nets = init_nets(n_parties=args.n_parties, args=args, device=device)
+    clients_nets = init_nets(n_parties=args.n_parties, args=args, device=device, pretrained_embeddings=pretrained_embeddings)
 
     # 初始化服務器網絡
-    global_nets = init_nets(n_parties=1, args=args, device=device)
+    global_nets = init_nets(n_parties=1, args=args, device=device, pretrained_embeddings=pretrained_embeddings)
     global_model = global_nets[0]
     
     # 計算每輪參與訓練的客戶端數量
@@ -496,13 +494,8 @@ if __name__ == '__main__':
     if args.save_path is None:
         args.save_path = f'results/{args.dataset}_{args.alg}_results.json'
 
-    # 創建 args 的副本並移除 pretrained_embeddings
-    args_dict = vars(args).copy()
-    if 'pretrained_embeddings' in args_dict:
-        del args_dict['pretrained_embeddings']
-
     results = {
-        'args': args_dict,
+        'args': args,
         'comm_acc_avg': comm_acc,
         'comm_acc_client': comm_acc_dict,
         'global_acc': global_acc
@@ -510,3 +503,4 @@ if __name__ == '__main__':
 
     with open(args.save_path, 'w') as f:
         json.dump(results, f, indent=4)
+    print(f"訓練結果已保存到 {args.save_path}")

@@ -190,7 +190,7 @@ def compute_accuracy(model, dataloader, device):
     
     return accuracy
 
-def init_nets(n_parties, args, device='cpu'):
+def init_nets(n_parties, args, device='cpu', pretrained_embeddings=None):
     # 設定分類數量
     if args.dataset == 'imdb':
         n_classes = 2
@@ -216,11 +216,11 @@ def init_nets(n_parties, args, device='cpu'):
 
     for net_i in range(n_parties):
         if args.alg == 'moon':
-            nets[net_i] = MOONModel(args=args)
+            nets[net_i] = MOONModel(args=args, pretrained_embeddings=pretrained_embeddings)
         elif args.alg == 'fedavg':
-            nets[net_i] = FedAvgModel(args=args)
+            nets[net_i] = FedAvgModel(args=args, pretrained_embeddings=pretrained_embeddings)
         elif args.alg == 'fedprox':
-            nets[net_i] = FedProxModel(args=args)
+            nets[net_i] = FedProxModel(args=args, pretrained_embeddings=pretrained_embeddings)
             
         # 將模型移動到指定設備
         nets[net_i] = nets[net_i].to(device)
