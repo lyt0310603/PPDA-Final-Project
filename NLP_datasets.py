@@ -103,8 +103,8 @@ class TextDataset(Dataset):
 
 
 class IMDBDataset(TextDataset):
-    def __init__(self, split='train'):
-        super().__init__()
+    def __init__(self, split='train', max_length=512):
+        super().__init__(max_length=max_length)
         dataset = load_dataset('imdb', split=split)
         self.data = dataset['text']
         self.labels = np.array(dataset['label'], dtype=np.int64)
@@ -112,8 +112,8 @@ class IMDBDataset(TextDataset):
         self.create_vocab()
 
 class AGNewsDataset(TextDataset):
-    def __init__(self, split='train'):
-        super().__init__()
+    def __init__(self, split='train', max_length=512):
+        super().__init__(max_length=max_length)
         dataset = load_dataset('ag_news', split=split)
         self.data = dataset['text']
         self.labels = np.array(dataset['label'], dtype=np.int64)
@@ -121,8 +121,8 @@ class AGNewsDataset(TextDataset):
         self.create_vocab()
 
 class DBPediaDataset(TextDataset):
-    def __init__(self, split='train'):
-        super().__init__()
+    def __init__(self, split='train', max_length=512):
+        super().__init__(max_length=max_length)
         dataset = load_dataset('dbpedia_14', split=split)
         self.data = dataset['content']
         self.labels = np.array(dataset['label'], dtype=np.int64)
@@ -130,8 +130,8 @@ class DBPediaDataset(TextDataset):
         self.create_vocab()
 
 class SST2Dataset(TextDataset):
-    def __init__(self, split='train'):
-        super().__init__()
+    def __init__(self, split='train', max_length=512):
+        super().__init__(max_length=max_length)
         split = 'validation' if split == 'test' else split
         dataset = load_dataset('glue', 'sst2', split=split)
         self.data = dataset['sentence']
@@ -140,8 +140,8 @@ class SST2Dataset(TextDataset):
         self.create_vocab()
 
 class Newsgroups20Dataset(TextDataset):
-    def __init__(self, split='train'):
-        super().__init__()
+    def __init__(self, split='train', max_length=512):
+        super().__init__(max_length=max_length)
         dataset = load_dataset('SetFit/20_newsgroups', split=split)
         self.data = dataset['text']
         self.labels = np.array(dataset['label'], dtype=np.int64)
@@ -149,8 +149,8 @@ class Newsgroups20Dataset(TextDataset):
         self.create_vocab()
 
 class TRECDataset(TextDataset):
-    def __init__(self, split='train'):
-        super().__init__()
+    def __init__(self, split='train', max_length=512):
+        super().__init__(max_length=max_length)
         dataset = load_dataset('trec', split=split, trust_remote_code=True)
         self.data = dataset['text']
         self.labels = np.array(dataset['coarse_label'], dtype=np.int64)
@@ -158,8 +158,8 @@ class TRECDataset(TextDataset):
         self.create_vocab()
 
 class YelpReviewDataset(TextDataset):
-    def __init__(self, split='train'):
-        super().__init__()
+    def __init__(self, split='train', max_length=512):
+        super().__init__(max_length=max_length)
         dataset = load_dataset('yelp_review_full', split=split)
         self.data = dataset['text']
         self.labels = np.array(dataset['label'], dtype=np.int64)
@@ -184,19 +184,19 @@ class MOONTextDataset(TextDataset):
         
         # 根據數據集名稱加載對應的數據
         if dataset_name == 'imdb':
-            dataset = IMDBDataset(split)
+            dataset = IMDBDataset(split, max_length=max_length)
         elif dataset_name == 'ag_news':
-            dataset = AGNewsDataset(split)
+            dataset = AGNewsDataset(split, max_length=max_length)
         elif dataset_name == 'dbpedia_14':
-            dataset = DBPediaDataset(split)
+            dataset = DBPediaDataset(split, max_length=max_length)
         elif dataset_name == 'sst2':
-            dataset = SST2Dataset(split)  # SST2Dataset 會自動處理 test -> validation 的映射
+            dataset = SST2Dataset(split, max_length=max_length)
         elif dataset_name == '20newsgroups':
-            dataset = Newsgroups20Dataset(split)
+            dataset = Newsgroups20Dataset(split, max_length=max_length)
         elif dataset_name == 'trec':
-            dataset = TRECDataset(split)
+            dataset = TRECDataset(split, max_length=max_length)
         elif dataset_name == 'yelp_review':
-            dataset = YelpReviewDataset(split)
+            dataset = YelpReviewDataset(split, max_length=max_length)
         else:
             raise ValueError(f"不支持的數據集: {dataset_name}")
             
@@ -205,9 +205,25 @@ class MOONTextDataset(TextDataset):
         self.vocab = dataset.vocab
         self.vocab_size = dataset.vocab_size
         
+        # 檢查數據集標籤分布
+        unique_labels, counts = np.unique(self.labels, return_counts=True)
+        print(f"\n{dataset_name} {split} 數據集標籤分布:")
+        for label, count in zip(unique_labels, counts):
+            print(f"標籤 {label}: {count} 個樣本 ({count/len(self.labels)*100:.2f}%)")
+        
         # 如果是訓練集且指定了客戶端數量，則分配數據
         if split == 'train' and n_clients is not None:
             self.client_indices = self._assign_client_data()
+            
+            # 輸出每個客戶端的標籤分布
+            print("\n各客戶端標籤分布:")
+            for client_id in range(self.n_clients):
+                client_labels = self.labels[self.client_indices[client_id]]
+                unique, counts = np.unique(client_labels, return_counts=True)
+                print(f"\n客戶端 {client_id}:")
+                print(f"總樣本數: {len(client_labels)}")
+                for label, count in zip(unique, counts):
+                    print(f"標籤 {label}: {count} 個樣本 ({count/len(client_labels)*100:.2f}%)")
         else:
             self.client_indices = None
         
