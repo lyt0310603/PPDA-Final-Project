@@ -179,7 +179,7 @@ class Transformer(nn.Module):
         return last_hidden
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_seq_len=5000):
+    def __init__(self, d_model, max_seq_len):
         """
         初始化位置編碼
         
@@ -264,14 +264,6 @@ class BaseModel(nn.Module):
     def loss(self, outputs, labels):
         return F.cross_entropy(outputs, labels)
         
-    def get_weights(self):
-        """獲取模型的所有權重"""
-        return {
-            'embedding': {k: v.detach().clone() for k, v in self.embedding.state_dict().items()},
-            'encoder': {k: v.detach().clone() for k, v in self.encoder.state_dict().items()},
-            'fc': {k: v.detach().clone() for k, v in self.fc.state_dict().items()}
-        }
-        
     def init_weights(self):
         """初始化模型權重，除了預訓練的 embedding"""
         for name, param in self.named_parameters():
@@ -322,41 +314,15 @@ class MOONModel(BaseModel):
         
         return logits, projected
     
-    def get_weights(self):
-        """獲取模型的所有權重"""
-        weights = super().get_weights()
-        weights['projection_head'] = {k: v.detach().clone() for k, v in self.projection_head.state_dict().items()}
-        return weights
-    
-    def compute_projection(self, x, weights):
-        """使用給定的權重計算投影
-        
-        參數:
-            x: 輸入數據
-            weights: 包含 encoder 和 projection_head 權重的字典
-        """
-        with torch.no_grad():
-            # 創建一個新的模型實例來計算投影
-            temp_model = MOONModel(self.args)
-            load_model_weights(temp_model, weights)
-            temp_model.to(x.device)
-            temp_model.eval()
-            
-            
-            
-            # 計算投影
-            _, projected = temp_model(x)
-            return F.normalize(projected, dim=1)
-    
-    def loss(self, outputs, labels, x, global_weight=None, prev_weights=None):
+    def loss(self, outputs, labels, x, global_model=None, prev_models=None):
         """計算 MOON 損失
         
         參數:
             outputs: (logits, projected) 元組
             labels: 真實標籤
             x: 輸入數據
-            global_weights: 全局模型的權重
-            prev_weights: 歷史模型權重的列表
+            global_model: 全局模型
+            prev_models: 歷史模型列表
             
         返回:
             total_loss: 總損失
@@ -366,19 +332,25 @@ class MOONModel(BaseModel):
         projected = F.normalize(projected, dim=1)
         cls_loss = F.cross_entropy(logits, labels)
         
-        if global_weight is None or prev_weights is None or len(prev_weights) == 0:
+        if global_model is None or prev_models is None or len(prev_models) == 0:
             return cls_loss
             
         # 計算對比損失
-        global_projected = self.compute_projection(x, global_weight)
+        with torch.no_grad():
+            global_model.eval()
+            _, global_projected = global_model(x)
+            global_projected = F.normalize(global_projected, dim=1)
         
         # 計算與全局模型的相似度作為正樣本
         pos_sim = self.cos(projected, global_projected)
         logits_contrast = pos_sim.unsqueeze(1)  # [batch_size, 1]
         
         # 計算與所有歷史模型的相似度作為負樣本
-        for prev_weight in prev_weights:
-            prev_projected = self.compute_projection(x, prev_weight)
+        for prev_model in prev_models:
+            with torch.no_grad():
+                prev_model.eval()
+                _, prev_projected = prev_model(x)
+                prev_projected = F.normalize(prev_projected, dim=1)
             neg_sim = self.cos(projected, prev_projected)
             logits_contrast = torch.cat([logits_contrast, neg_sim.unsqueeze(1)], dim=1)  # [batch_size, n_models]
         
@@ -404,30 +376,31 @@ class FedProxModel(BaseModel):
         self.mu = args.mu
         self.init_weights()
     
-    def loss(self, outputs, labels, global_weights=None):
+    def loss(self, outputs, labels, global_model=None):
         """計算 FedProx 損失，包括分類損失和正則化項
         
         參數:
             outputs: 模型輸出
             labels: 真實標籤
-            global_weights: 全局模型的權重
+            global_model: 全局模型
             
         返回:
             total_loss: 總損失
         """
         cls_loss = F.cross_entropy(outputs, labels)
         
-        if global_weights is None:
+        if global_model is None:
             return cls_loss
             
-        # 獲取當前模型的權重
-        current_weights = self.get_weights()
+        # 獲取當前模型和全局模型的權重
+        current_state = self.state_dict()
+        global_state = global_model.state_dict()
         
         # 計算正則化項
         proximal_loss = 0.0
-        for k in current_weights:
-            for param_name, param in current_weights[k].items():
-                proximal_loss += torch.sum((param - global_weights[k][param_name]) ** 2)
+        for key in current_state:
+            if 'weight' in key or 'bias' in key:  # 只計算權重和偏置項
+                proximal_loss += torch.mean((current_state[key] - global_state[key]) ** 2)
         
         return cls_loss + (self.mu / 2) * proximal_loss
 

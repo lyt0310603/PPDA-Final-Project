@@ -227,42 +227,36 @@ def init_nets(n_parties, args, device='cpu'):
 
     return nets
 
-def weights_aggregation(nets_this_round, client_dataloaders, party_list_this_round):
+def weights_aggregation(nets_this_round, client_dataloaders):
     """
     使用聯邦平均更新全域模型權重
     
     參數:
         nets_this_round: 本輪參與訓練的客戶端模型字典
         client_dataloaders: 所有客戶端的數據加載器字典
-        party_list_this_round: 本輪參與訓練的客戶端列表
     
     返回:
-        global_w: 更新後的全域模型權重
+        global_state: 更新後的全域模型權重
     """
     # 計算總訓練數據點
-    total_data_points = sum([len(client_dataloaders[r]) for r in party_list_this_round])
+    total_data_points = sum([len(client_dataloaders[r]) for r in nets_this_round.keys()])
 
     # 計算每個客戶端模型的訓練數據點佔總數的比例
-    fed_avg_freqs = [len(client_dataloaders[r]) / total_data_points for r in party_list_this_round]
+    fed_avg_freqs = [len(client_dataloaders[r]) / total_data_points for r in nets_this_round.keys()]
 
     # 更新全域模型權重
     for net_id, net in enumerate(nets_this_round.values()):
-        net_para = net.get_weights()
+        net_state = net.state_dict()
         if net_id == 0:
-            global_w = {}
-            for module_name, module_weights in net_para.items():
-                global_w[module_name] = {}
-                for key, value in module_weights.items():
-                    global_w[module_name][key] = value * fed_avg_freqs[net_id]
+            global_state = {}
+            for key, value in net_state.items():
+                global_state[key] = value * fed_avg_freqs[net_id]
         else:
-            for module_name, module_weights in net_para.items():
-                if module_name not in global_w:
-                    global_w[module_name] = {}
-                for key, value in module_weights.items():
-                    if key not in global_w[module_name]:
-                        global_w[module_name][key] = value * fed_avg_freqs[net_id]
-                    else:
-                        global_w[module_name][key] += value * fed_avg_freqs[net_id]
-    return global_w
+            for key, value in net_state.items():
+                if key not in global_state:
+                    global_state[key] = value * fed_avg_freqs[net_id]
+                else:
+                    global_state[key] += value * fed_avg_freqs[net_id]
+    return global_state
 
     

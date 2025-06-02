@@ -36,7 +36,7 @@ def get_args():
     parser.add_argument('--batch_size', type=int, default=32, help='batch size for training')
     parser.add_argument('--lr', type=float, default=0.001, help='learning rate for training')
     parser.add_argument('--epochs', type=int, default=10, help='number of local epochs')
-    parser.add_argument('--seed', type=int, default=42, help='random seed for reproducibility')
+    parser.add_argument('--seed', type=int, default=114514, help='random seed for reproducibility')
     parser.add_argument('--device', type=str, default='cuda:0', help='The device to run the program')
     parser.add_argument('--temperature', type=float, default=0.5, help='the temperature parameter for contrastive loss')
 
@@ -61,7 +61,7 @@ def get_args():
     
     return args
 
-def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, global_model_w=None, prev_model_pool=None, round=None, device='cpu'):
+def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, global_model=None, prev_models=None, round=None, device='cpu'):
     avg_acc = 0.0
     acc_dict = {}
     n_epoch = args.epochs
@@ -76,15 +76,15 @@ def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, 
             trainacc, testacc = train_fedavg(net_id, net, client_dataloader, test_dataloader, n_epoch, args, round, device=device)
         elif args.alg == 'fedprox':
             # 進行 FedProx 學習訓練
-            trainacc, testacc = train_fedprox(net_id, net, global_model_w, client_dataloader, test_dataloader, n_epoch, args, round, device=device)
+            trainacc, testacc = train_fedprox(net_id, net, global_model, client_dataloader, test_dataloader, n_epoch, args, round, device=device)
         elif args.alg == 'moon':
-            # 取出對應客戶端的歷史模型權重
-            prev_models_w = []
-            for i in range(len(prev_model_pool)):
-                prev_models_w.append(prev_model_pool[i][net_id]) 
+            # 取出對應客戶端的歷史模型
+            prev_models_client = []
+            for i in range(len(prev_models)):
+                prev_models_client.append(prev_models[i][net_id])
 
             # 進行 MOON 學習訓練
-            trainacc, testacc = train_moon(net_id, net, global_model_w, prev_models_w, client_dataloader, test_dataloader, n_epoch, args, round, device=device)
+            trainacc, testacc = train_moon(net_id, net, global_model, prev_models_client, client_dataloader, test_dataloader, n_epoch, args, round, device=device)
 
         # 統一處理訓練結果輸出
         print(f"客戶端 {net_id} 訓練完成:")
@@ -98,14 +98,14 @@ def local_train_net(this_round_nets, args, client_dataloaders, test_dataloader, 
     print(f"平均測試準確率: {avg_acc:.4f}")
     return avg_acc, acc_dict
 
-def train_fedprox(net_id, net, global_model_w, client_dataloader, test_dataloader, n_epoch, args, round, device='cpu'):
+def train_fedprox(net_id, net, global_model, client_dataloader, test_dataloader, n_epoch, args, round, device='cpu'):
     """
     執行 FedProx 的本地訓練
     
     參數:
         net_id: 客戶端 ID
         net: 客戶端模型
-        global_model_w: 全域模型權重
+        global_model: 全域模型
         client_dataloader: 客戶端數據加載器
         test_dataloader: 測試數據加載器
         n_epoch: 本地訓練輪數
@@ -121,30 +121,40 @@ def train_fedprox(net_id, net, global_model_w, client_dataloader, test_dataloade
     opt = optim.Adam(net.parameters(), lr=args.lr)
 
     for epoch in range(n_epoch):
+        print(f"第 {epoch+1} 輪訓練", end="\t")
         net.train()
+        total_loss = 0
+        batch_count = 0
+        
         for batch_idx, (data, target) in enumerate(client_dataloader):
             data, target = data.to(device), target.to(device)
 
             opt.zero_grad()
             outputs = net(data)
-            loss = net.loss(outputs, target, global_model_w)
+            loss = net.loss(outputs, target, global_model)
             loss.backward()
             opt.step()
+            
+            total_loss += loss.item()
+            batch_count += 1
+        
+        avg_loss = total_loss / batch_count
+        print(f"平均損失: {avg_loss}")
 
     train_acc = compute_accuracy(net, client_dataloader, device)
     test_acc = compute_accuracy(net, test_dataloader, device)
 
     return train_acc, test_acc
 
-def train_moon(net_id, net, global_model_w, prev_models_w, client_dataloader, test_dataloader, n_epoch, args, round, device='cpu'):
+def train_moon(net_id, net, global_model, prev_models, client_dataloader, test_dataloader, n_epoch, args, round, device='cpu'):
     """
     執行 MOON 的本地訓練
     
     參數:
         net_id: 客戶端 ID
         net: 客戶端模型
-        global_model_w: 全域模型權重
-        prev_models_w: 歷史模型權重列表
+        global_model: 全域模型
+        prev_models: 歷史模型列表
         client_dataloader: 客戶端數據加載器
         test_dataloader: 測試數據加載器
         n_epoch: 本地訓練輪數
@@ -160,23 +170,25 @@ def train_moon(net_id, net, global_model_w, prev_models_w, client_dataloader, te
     opt = optim.Adam(net.parameters(), lr=args.lr)
 
     for epoch in range(n_epoch):
-        print(f"第 {epoch+1} 輪訓練")
+        print(f"第 {epoch+1} 輪訓練", end="\t")
         net.train()
+        total_loss = 0
+        batch_count = 0
+        
         for batch_idx, (data, target) in enumerate(client_dataloader):
-            data = data.to(device)
-            target = target.to(device)
-            
+            data, target = data.to(device), target.to(device)
+
             opt.zero_grad()
-            
-            # 前向傳播
-            results = net(data)
-            
-            # 計算損失
-            loss = net.loss(results, target, data, global_model_w, prev_models_w)
-            
-            # 反向傳播
+            outputs = net(data)
+            loss = net.loss(outputs, target, data, global_model, prev_models)
             loss.backward()
             opt.step()
+            
+            total_loss += loss.item()
+            batch_count += 1
+        
+        avg_loss = total_loss / batch_count
+        print(f"平均損失: {avg_loss}")
 
     train_acc = compute_accuracy(net, client_dataloader, device)
     test_acc = compute_accuracy(net, test_dataloader, device)
@@ -205,7 +217,11 @@ def train_fedavg(net_id, net, client_dataloader, test_dataloader, n_epoch, args,
     opt = optim.Adam(net.parameters(), lr=args.lr)
 
     for epoch in range(n_epoch):
+        print(f"第 {epoch+1} 輪訓練", end="\t")
         net.train()
+        total_loss = 0
+        batch_count = 0
+        
         for batch_idx, (data, target) in enumerate(client_dataloader):
             data, target = data.to(device), target.to(device)
 
@@ -214,13 +230,19 @@ def train_fedavg(net_id, net, client_dataloader, test_dataloader, n_epoch, args,
             loss = net.loss(outputs, target)
             loss.backward()
             opt.step()
+            
+            total_loss += loss.item()
+            batch_count += 1
+        
+        avg_loss = total_loss / batch_count
+        print(f"平均損失: {avg_loss}")
 
     train_acc = compute_accuracy(net, client_dataloader, device)
     test_acc = compute_accuracy(net, test_dataloader, device)
 
     return train_acc, test_acc
 
-def global_train_round(args, round, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, prev_models_w=None, device='cpu'):
+def global_train_round(args, round, clients_nets, global_model, client_dataloaders, test_dataloader, party_list_rounds, prev_models=None, device='cpu'):
     """
     執行一輪訓練
     
@@ -232,7 +254,7 @@ def global_train_round(args, round, clients_nets, global_model, client_dataloade
         client_dataloaders: 客戶端數據加載器字典
         test_dataloader: 測試數據加載器
         party_list_rounds: 每輪參與訓練的客戶端列表
-        prev_models_w: 歷史模型權重（用於 MOON 算法）
+        prev_models: 歷史模型列表（用於 MOON 算法）
         device: 訓練設備
     
     返回:
@@ -243,7 +265,7 @@ def global_train_round(args, round, clients_nets, global_model, client_dataloade
     print(f"\n=== 開始第 {round+1} 輪全域訓練 ===")
     
     # 取得全域模型的權重
-    global_w = global_model.get_weights()
+    global_state = global_model.state_dict()
     
     # 選擇本輪參與訓練的客戶端列表
     party_list_this_round = party_list_rounds[round]
@@ -253,16 +275,16 @@ def global_train_round(args, round, clients_nets, global_model, client_dataloade
 
     # 將全域模型權重載入到每個客戶端模型
     for net in nets_this_round.values():
-        load_model_weights(net, global_w)
+        net.load_state_dict(global_state)
 
     # 進行本地訓練
-    avg_acc, acc_dict = local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_w, prev_models_w, round, device)
+    avg_acc, acc_dict = local_train_net(nets_this_round, args, client_dataloaders, test_dataloader, global_model, prev_models, round, device)
 
     # 更新全域模型權重
-    global_w = weights_aggregation(nets_this_round, client_dataloaders, party_list_this_round)
+    global_state = weights_aggregation(nets_this_round, client_dataloaders)
 
     # 更新全域模型
-    load_model_weights(global_model, global_w)
+    global_model.load_state_dict(global_state)
 
     # 計算全域模型的測試準確率
     global_test_acc = compute_accuracy(global_model, test_dataloader, device)
@@ -295,10 +317,14 @@ def global_train_moon(args, clients_nets, global_model, client_dataloaders, test
     # 初始化模型緩存
     old_nets_pool = []
     for _ in range(args.model_buffer_size):
-        round_weights = {}
+        round_models = {}
         for client_id in range(args.n_parties):
-            round_weights[client_id] = clients_nets[client_id].get_weights()
-        old_nets_pool.append(round_weights)
+            # 創建新的模型實例並複製權重
+            new_model = MOONModel(args)
+            new_model.load_state_dict(clients_nets[client_id].state_dict())
+            new_model.to(device)
+            round_models[client_id] = new_model
+        old_nets_pool.append(round_models)
     
     for round in range(args.comm_round):
         # 執行一輪訓練
@@ -312,14 +338,18 @@ def global_train_moon(args, clients_nets, global_model, client_dataloaders, test
         global_acc.append(global_test_acc)
 
         # 更新模型緩存
-        round_weights = {}
+        round_models = {}
         for client_id in range(args.n_parties):
-            round_weights[client_id] = clients_nets[client_id].get_weights()
+            # 創建新的模型實例並複製權重
+            new_model = MOONModel(args)
+            new_model.load_state_dict(clients_nets[client_id].state_dict())
+            new_model.to(device)
+            round_models[client_id] = new_model
         
-        # 如果緩存已滿，移除最舊的權重
+        # 如果緩存已滿，移除最舊的模型
         if len(old_nets_pool) >= args.model_buffer_size:
             old_nets_pool.pop(0)
-        old_nets_pool.append(round_weights)
+        old_nets_pool.append(round_models)
 
     return comm_acc, comm_acc_dict, global_acc
 
