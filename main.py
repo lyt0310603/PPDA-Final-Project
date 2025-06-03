@@ -330,8 +330,7 @@ def global_train_moon(args, clients_nets, global_model, client_dataloaders, test
         round_models = {}
         for client_id in range(args.n_parties):
             # 創建新的模型實例並複製權重
-            new_args = copy.deepcopy(args)
-            new_args.vocab_size = client_dataloaders[client_id].dataset.dataset.vocab_size
+            new_args = copy.deepcopy(clients_nets[client_id].args)
             new_model = MOONModel(new_args)
             new_model.load_state_dict(clients_nets[client_id].state_dict())
             new_model.to(device)
@@ -354,8 +353,7 @@ def global_train_moon(args, clients_nets, global_model, client_dataloaders, test
         round_models = {}
         for client_id in range(args.n_parties):
             # 創建新的模型實例並複製權重
-            new_args = copy.deepcopy(args)
-            new_args.vocab_size = client_dataloaders[client_id].dataset.dataset.vocab_size
+            new_args = copy.deepcopy(clients_nets[client_id].args)
             new_model = MOONModel(new_args)
             new_model.load_state_dict(clients_nets[client_id].state_dict())
             new_model.to(device)

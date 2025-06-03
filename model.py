@@ -225,6 +225,7 @@ class BaseModel(nn.Module):
         # 初始化詞嵌入層
         if pretrained_embeddings is not None:
             self.embedding = nn.Embedding.from_pretrained(pretrained_embeddings, freeze=args.freeze_embeddings)
+            self.args.vocab_size = pretrained_embeddings.shape[0]
         else:
             self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim)
         
