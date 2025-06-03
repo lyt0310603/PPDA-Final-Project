@@ -6,6 +6,7 @@ import torch.nn as nn
 import argparse
 import random
 import time
+from datetime import datetime
 
 from model import *
 from utils import *
@@ -501,7 +502,8 @@ if __name__ == '__main__':
 
     # 保存訓練結果
     if args.save_path is None:
-        args.save_path = f'results/{args.dataset}_{args.alg}_results.json'
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args.save_path = f'results/{args.dataset}_{args.alg}_{args.model_name}_{timestamp}_results.json'
 
     # 將 args 轉換為字典
     args_dict = vars(args)
