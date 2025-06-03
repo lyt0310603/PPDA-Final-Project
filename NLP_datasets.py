@@ -9,6 +9,7 @@ import json
 from torch.nn.utils.rnn import pad_sequence
 from collections import Counter
 import itertools
+from sklearn.model_selection import train_test_split
 
 
 class TextDataset(Dataset):
@@ -166,6 +167,34 @@ class YelpReviewDataset(TextDataset):
         self._clean_and_truncate_data()
         self.create_vocab()
 
+class SST5Dataset(TextDataset):
+    def __init__(self, split='train', max_length=512):
+        super().__init__(max_length=max_length)
+        split = 'validation' if split == 'test' else split
+        dataset = load_dataset("SetFit/sst5", split=split)
+        self.data = dataset['text']
+        self.labels = np.array(dataset['label'], dtype=np.int64)
+        self._clean_and_truncate_data()
+        self.create_vocab()
+
+class FinancialPhraseBankDataset(TextDataset):
+    def __init__(self, split='train', max_length=512, test_size=0.2, seed=42):
+        super().__init__(max_length=max_length)
+        # 下載資料集
+        dataset = load_dataset('financial_phrasebank', 'sentences_allagree', split='train', trust_remote_code=True)
+        # 切分 train/test
+        from sklearn.model_selection import train_test_split
+        idx = np.arange(len(dataset['sentence']))
+        train_idx, test_idx = train_test_split(idx, test_size=test_size, random_state=seed)
+        if split == 'test':
+            self.data = [dataset['sentence'][i] for i in test_idx]
+            self.labels = np.array([dataset['label'][i] for i in test_idx], dtype=np.int64)
+        else:
+            self.data = [dataset['sentence'][i] for i in train_idx]
+            self.labels = np.array([dataset['label'][i] for i in train_idx], dtype=np.int64)
+        self._clean_and_truncate_data()
+        self.create_vocab()
+
 class MOONTextDataset(TextDataset):
     def __init__(self, dataset_name, split='train', beta=0.5, n_clients=None, max_length=512, vocab_size=30000):
         """
@@ -191,12 +220,16 @@ class MOONTextDataset(TextDataset):
             dataset = DBPediaDataset(split, max_length=max_length)
         elif dataset_name == 'sst2':
             dataset = SST2Dataset(split, max_length=max_length)
+        elif dataset_name == 'sst5':
+            dataset = SST5Dataset(split, max_length=max_length)
         elif dataset_name == '20newsgroups':
             dataset = Newsgroups20Dataset(split, max_length=max_length)
         elif dataset_name == 'trec':
             dataset = TRECDataset(split, max_length=max_length)
         elif dataset_name == 'yelp_review':
             dataset = YelpReviewDataset(split, max_length=max_length)
+        elif dataset_name == 'financial_phrasebank':
+            dataset = FinancialPhraseBankDataset(split, max_length=max_length)
         else:
             raise ValueError(f"不支持的數據集: {dataset_name}")
             

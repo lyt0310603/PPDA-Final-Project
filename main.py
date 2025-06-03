@@ -29,8 +29,8 @@ def get_args():
 
     # 數據集相關參數
     parser.add_argument('--dataset', type=str, default='imdb', 
-                       choices=['imdb', 'ag_news', 'dbpedia_14', 'sst2', '20newsgroups', 'trec', 'yelp_review'], 
-                       help='dataset used in training')
+                       choices=['imdb', 'ag_news', 'dbpedia_14', 'sst2', 'sst5', '20newsgroups', 'trec', 'yelp_review', 'financial_phrasebank'], 
+                       help='dataset used in training (imdb, ag_news, dbpedia_14, sst2, sst5, 20newsgroups, trec, yelp_review, financial_phrasebank)')
     parser.add_argument('--max_length', type=int, default=350, help="max length of text")
     parser.add_argument('--beta', type=float, default=0.5, help='The parameter for the dirichlet distribution for data partitioning')
     parser.add_argument('--vocab_size', type=int, default=30000, help='The size of the vocabulary')

@@ -206,6 +206,10 @@ def init_nets(n_parties, args, device='cpu', pretrained_embeddings=None):
         n_classes = 6
     elif args.dataset == 'yelp_review':
         n_classes = 5
+    elif args.dataset == 'sst5':
+        n_classes = 5
+    elif args.dataset == 'financial_phrasebank':
+        n_classes = 3
     else:
         raise ValueError(f"不支持的數據集: {args.dataset}")
     
